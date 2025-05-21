@@ -1,9 +1,8 @@
-# backend/manim_engine.py
 import os
 import subprocess
 import uuid
 
-OUTPUT_DIR = "backend/generated_videos"
+OUTPUT_DIR = "backend/gen_vids"
 
 def save_and_render(code: str) -> str:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -15,13 +14,16 @@ def save_and_render(code: str) -> str:
         f.write(code)
 
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["manim", file_path, "MorphScene", "-qk"],
             check=True,
             capture_output=True,
+            text=True,
         )
     except subprocess.CalledProcessError as e:
-        return f"Error during rendering: {e.stderr.decode()}"
+        print("❌ Manim render failed.")
+        print("STDOUT:", e.stdout)
+        print("STDERR:", e.stderr)
+        return f"Error during rendering: {e.stderr}"
 
     return video_path
-

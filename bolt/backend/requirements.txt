@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+manim
+python-dotenv
+requests
+dotenv
+pydantic
+

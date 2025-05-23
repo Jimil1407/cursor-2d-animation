@@ -2,7 +2,7 @@ import os
 import subprocess
 import uuid
 
-OUTPUT_DIR = "backend/gen_vids"
+OUTPUT_DIR = "gen_vids"
 
 def save_and_render(code: str) -> str:
     os.makedirs(OUTPUT_DIR, exist_ok=True)

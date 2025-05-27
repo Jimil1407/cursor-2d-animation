@@ -1,97 +1,110 @@
-import React, { useState } from "react";
-import RenderForm from "./components/Render";
-import OutputViewer from "./components/Output";
-import CodeEditor from "./components/CodeEditor";
-import { motion } from "framer-motion";
+import React, { useState } from 'react';
+import { Toaster } from 'react-hot-toast';
+import { AnimatePresence } from 'framer-motion';
+import { generateAnimation, getCode } from './services/api';
+import { GenerationResponse, HistoryItem, Status } from './types';
+import PromptForm from './components/PromptForm';
+import VideoPlayer from './components/VideoPlayer';
+import CodeEditor from './components/CodeEditor';
+import HistoryPanel from './components/HistoryPanel';
+import Header from './components/Header';
+import ErrorMessage from './components/ErrorMessage';
+import { ThemeProvider } from './context/ThemeContext';
 
-export default function App() {
-  const [loading, setLoading] = useState(false);
-  const [outputUrl, setOutputUrl] = useState<string | null>(null);
+function App() {
+  const [prompt, setPrompt] = useState<string | null>(null);
+  const [videoPath, setVideoPath] = useState<string | null>(null);
   const [sceneFileId, setSceneFileId] = useState<string | null>(null);
+  const [code, setCode] = useState<string>('');
+  const [status, setStatus] = useState<Status>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  const handleRender = async (prompt: string) => {
-    setLoading(true);
-    setOutputUrl(null);
-    setSceneFileId(null);
-
+  const handleGenerateAnimation = async (promptText: string) => {
+    setStatus('loading');
+    setError(null);
+    setPrompt(promptText);
+    
     try {
-      const response = await fetch("http://localhost:8000/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const videoUrl = `http://localhost:8000${data.video_path}`;
-        setOutputUrl(videoUrl);
-        setSceneFileId(data.scene_file_id);
-      } else {
-        throw new Error("Failed to generate video");
-      }
-    } catch (error) {
-      console.error("Error:", error);
-    } finally {
-      setLoading(false);
+      const response: GenerationResponse = await generateAnimation(promptText);
+      setVideoPath(response.video_path);
+      setSceneFileId(response.scene_file_id);
+      
+      // Fetch the code
+      const codeText = await getCode(response.scene_file_id);
+      setCode(codeText);
+      
+      // Add to history
+      const newHistoryItem: HistoryItem = {
+        id: Math.random().toString(36).substring(2, 9), // Simple ID generation
+        prompt: promptText,
+        videoPath: response.video_path,
+        sceneFileId: response.scene_file_id,
+        timestamp: Date.now()
+      };
+      
+      setHistory(prev => [newHistoryItem, ...prev.slice(0, 9)]);
+      setStatus('success');
+    } catch (err) {
+      console.error('Error:', err);
+      setError('Failed to generate animation. Please try again.');
+      setStatus('error');
     }
   };
 
-  // New callback to update video url when code changes and re-renders video
-  const handleUpdatedVideo = (newVideoUrl: string) => {
-    setOutputUrl(newVideoUrl);
+  const handleSelectHistoryItem = async (item: HistoryItem) => {
+    setPrompt(item.prompt);
+    setVideoPath(item.videoPath);
+    setSceneFileId(item.sceneFileId);
+    
+    try {
+      const codeText = await getCode(item.sceneFileId);
+      setCode(codeText);
+    } catch (err) {
+      console.error('Error fetching code for history item:', err);
+      setError('Failed to load code for this animation.');
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black px-6 py-10 text-white">
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-4xl mx-auto"
-      >
-        <div className="text-center mb-12">
-          <motion.h1 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500"
-          >
-            Cursor for 2D Animation
-          </motion.h1>
-          <motion.p 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="text-xl mb-8 text-gray-400"
-          >
-            Transform your ideas into stunning animations with AI-powered code generation
-          </motion.p>
-        </div>
+    <ThemeProvider>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 dark:from-gray-900 dark:to-blue-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+        <Toaster position="top-right" />
+        <Header />
+        
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex flex-col md:flex-row gap-8">
+            <div className="w-full md:w-3/4">
+              <PromptForm onSubmit={handleGenerateAnimation} status={status} />
+              
+              <AnimatePresence>
+                {error && (
+                  <ErrorMessage message={error} onDismiss={() => setError(null)} />
+                )}
+              </AnimatePresence>
+              
+              <VideoPlayer videoPath={videoPath} prompt={prompt} />
+              
+              <CodeEditor sceneFileId={sceneFileId} onUpdateVideo={(videoUrl) => setVideoPath(videoUrl)} />
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.6 }}
-          className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-gray-700/50 mb-10"
-        >
-          <RenderForm onSubmit={handleRender} loading={loading} />
-          <OutputViewer outputUrl={outputUrl} />
-        </motion.div>
-
-        {sceneFileId && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.7 }}
-            className="bg-gray-800/40 p-6 rounded-xl border border-gray-700/40"
-          >
-            <h2 className="text-xl font-semibold mb-4 text-purple-400">
-              ✏️ Edit Generated Python Code
-            </h2>
-            <CodeEditor sceneFileId={sceneFileId} onUpdateVideo={handleUpdatedVideo} />
-          </motion.div>
-        )}
-      </motion.div>
-    </div>
+            </div>
+            
+            <div className="w-full md:w-1/4">
+              <HistoryPanel 
+                history={history} 
+                onSelect={handleSelectHistoryItem}
+                currentId={history.find(item => item.sceneFileId === sceneFileId)?.id || null}
+              />
+            </div>
+          </div>
+        </main>
+        
+        <footer className="py-6 px-4 sm:px-6 lg:px-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          <p>Built with Manim and FastAPI • {new Date().getFullYear()}</p>
+        </footer>
+      </div>
+    </ThemeProvider>
   );
 }
+
+export default App;

@@ -30,7 +30,9 @@ def save_and_render(code: str) -> str:
 
     # Now check the folder for mp4 files
     try:
+        print(video_folder)
         files = os.listdir(video_folder)
+        print(files)
         mp4_files = [f for f in files if f.endswith(".mp4")]
         if not mp4_files:
             print("⚠️ No .mp4 files found after rendering.")

@@ -7,9 +7,10 @@ interface HistoryPanelProps {
   history: HistoryItem[];
   onSelect: (item: HistoryItem) => void;
   currentId: string | null;
+  onClose: () => void;
 }
 
-const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onSelect, currentId }) => {
+const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onSelect, currentId, onClose }) => {
   if (!history.length) return null;
 
   return (

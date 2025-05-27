@@ -3,3 +3,5 @@ venv
 .DS_Store
 media
 backend/media
+backend/Video_Codes/__pycache__
+__pycache__

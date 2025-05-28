@@ -7,10 +7,16 @@ import toast from 'react-hot-toast';
 import logo from './logo.png';
 
 const PromptStudioLogo = () => (
-  <div className="mx-auto mb-6 w-20 h-20 rounded-full ring-4 ring-purple-600 flex items-center justify-center bg-white dark:bg-gray-900">
-    <img src={logo} alt="PromptMotion Logo" className="h-12 w-auto" />
+  <div className="flex flex-col items-center justify-center mb-6">
+    <div className="w-20 h-20 rounded-full ring-4 ring-purple-600 flex items-center justify-center bg-white dark:bg-gray-900 mb-2">
+      <img src={logo} alt="PromptMotion Logo" className="h-12 w-auto" />
+    </div>
+    <h1 className="text-xl font-semibold text-purple-600 dark:text-purple-400">
+      PromptMotion
+    </h1>
   </div>
 );
+
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');

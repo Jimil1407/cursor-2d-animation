@@ -5,3 +5,4 @@ media
 backend/media
 backend/Video_Codes
 __pycache__
+node_modules

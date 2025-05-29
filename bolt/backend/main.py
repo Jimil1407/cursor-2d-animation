@@ -9,6 +9,8 @@ import re
 import os
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+from firebase_admin import db
+from firebase_config import firebase_app
 
 class PromptInput(BaseModel):
     prompt: str
@@ -23,28 +25,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
 @app.post("/generate")
 async def generate_video(data: PromptInput):
     code = generate_manim_code(data.prompt)
-    video_path = save_and_render(code)
+    video_url = save_and_render(code)
     
-    # Extract scene_file_id
-    file_id_match = re.search(r"scene_(.*?)/", video_path)
+    # Extract scene_file_id from the video URL
+    file_id_match = re.search(r"videos/([^/]+)/", video_url)
     scene_file_id = file_id_match.group(1) if file_id_match else "unknown"
 
     return {
-        "video_path": video_path,
+        "video_url": video_url,
         "scene_file_id": scene_file_id
     }
 
 @app.get("/code/{scene_file_id}")
 def get_code(scene_file_id: str):
-    file_path = f"Video_codes/scene_{scene_file_id}.py"
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path, media_type="text/plain")
+    # Get code from Firebase Realtime Database
+    code_ref = db.reference(f'manim_codes/{scene_file_id}')
+    code_data = code_ref.get()
+    
+    if not code_data or 'code' not in code_data:
+        raise HTTPException(status_code=404, detail="Code not found")
+    
+    return {"code": code_data['code']}
 
 class CodeUpdate(BaseModel):
     code: str
@@ -54,18 +58,18 @@ def update_code(scene_file_id: str, update: CodeUpdate):
     print(f"Received code for scene {scene_file_id}:")
     print(update.code[:1000])  # Print first 1000 chars for sanity check
 
-    file_path = f"Video_codes/scene_{scene_file_id}.py"
-    with open(file_path, "w") as f:
-        f.write(update.code)
+    # Update code in Firebase and render new video
+    video_url = save_and_render(update.code)
     
-    video_path = save_and_render(update.code)
-    
-    # Extract scene_file_id
-    file_id_match = re.search(r"scene_(.*?)/", video_path)
-    scene_file_id = file_id_match.group(1) if file_id_match else "unknown"
+    # Extract scene_file_id from the video URL
+    file_id_match = re.search(r"videos/([^/]+)/", video_url)
+    new_scene_file_id = file_id_match.group(1) if file_id_match else "unknown"
 
-    print(f"Written to {file_path}")
+    print(f"Updated code and rendered new video with ID: {new_scene_file_id}")
 
-    # Return any relevant info, e.g. video_path after rendering
-    return {"status": "updated", "video_path": video_path}
+    return {
+        "status": "updated",
+        "video_url": video_url,
+        "scene_file_id": new_scene_file_id
+    }
 

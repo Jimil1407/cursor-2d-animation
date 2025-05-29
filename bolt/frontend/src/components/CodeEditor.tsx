@@ -61,9 +61,7 @@ export default function CodeEditor({ sceneFileId, onUpdateVideo }: Props) {
       }
 
       const data = await response.json();
-      const newVideoUrl = `http://localhost:8000${data.video_path}`;
-      console.log(newVideoUrl);
-      onUpdateVideo(newVideoUrl);  // Notify parent of new video url
+      onUpdateVideo(data.video_url);  // Use the Firebase video URL directly
 
     } catch (err) {
       setError("Failed to save changes. Please try again.");

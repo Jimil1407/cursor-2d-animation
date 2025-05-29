@@ -31,7 +31,7 @@ function MainApp() {
 
     try {
       const response: GenerationResponse = await generateAnimation(promptText);
-      setVideoPath(response.video_path);
+      setVideoPath(response.video_url);
       setSceneFileId(response.scene_file_id);
 
       const codeText = await getCode(response.scene_file_id);
@@ -40,7 +40,7 @@ function MainApp() {
       const newHistoryItem: HistoryItem = {
         id: Math.random().toString(36).substring(2, 9),
         prompt: promptText,
-        videoPath: response.video_path,
+        videoUrl: response.video_url,
         sceneFileId: response.scene_file_id,
         timestamp: Date.now(),
       };
@@ -56,7 +56,7 @@ function MainApp() {
 
   const handleSelectHistoryItem = async (item: HistoryItem) => {
     setPrompt(item.prompt);
-    setVideoPath(item.videoPath);
+    setVideoPath(item.videoUrl);
     setSceneFileId(item.sceneFileId);
 
     try {
@@ -89,7 +89,7 @@ function MainApp() {
 
             <div className="flex flex-col lg:flex-row gap-4">
               <div className="w-full lg:w-1/2">
-                <VideoPlayer videoPath={videoPath} prompt={prompt} />
+                <VideoPlayer videoUrl={videoPath} prompt={prompt} />
               </div>
               <div className="w-full lg:w-1/2">
                 <CodeEditor

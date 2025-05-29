@@ -4,15 +4,15 @@ import { Download, ExternalLink } from 'lucide-react';
 import { getVideoUrl } from '../services/api';
 
 interface VideoPlayerProps {
-  videoPath: string | null;
+  videoUrl: string | null;
   prompt: string | null;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoPath, prompt }) => {
-  if (!videoPath) return null;
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, prompt }) => {
+  if (!videoUrl) return null;
 
-  const videoUrl = videoPath?.startsWith("http") ? videoPath : getVideoUrl(videoPath);
-  console.log(videoUrl);
+  const finalVideoUrl = videoUrl?.startsWith("http") ? videoUrl : getVideoUrl(videoUrl);
+  console.log(finalVideoUrl);
 
   return (
     <motion.div
@@ -31,7 +31,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoPath, prompt }) => {
       )}
       <div className="relative rounded-lg overflow-hidden bg-black aspect-video shadow-md">
         <video
-          src={videoUrl}
+          src={finalVideoUrl}
           controls
           controlsList="nodownload"
           className="w-full h-full object-contain"
@@ -41,7 +41,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoPath, prompt }) => {
       </div>
       <div className="flex justify-end gap-2 mt-4">
         <a
-          href={videoUrl}
+          href={finalVideoUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
@@ -50,7 +50,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoPath, prompt }) => {
           Open in New Tab
         </a>
         <a
-          href={videoUrl}
+          href={finalVideoUrl}
           download
           className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white bg-gradient-to-r from-purple-600 to-blue-500 hover:from-purple-700 hover:to-blue-600 transition-colors"
         >

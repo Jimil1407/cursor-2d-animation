@@ -40,5 +40,8 @@ export const updateCode = async (sceneFileId: string, code: string): Promise<voi
 };
 
 export const getVideoUrl = (videoPath: string): string => {
+  if (videoPath.startsWith('http')) {
+    return videoPath;
+  }
   return `${API_BASE_URL}${videoPath}`;
 };

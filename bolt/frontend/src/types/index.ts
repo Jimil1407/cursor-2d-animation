@@ -1,5 +1,5 @@
 export interface GenerationResponse {
-  video_path: string;
+  video_url: string;
   scene_file_id: string;
 }
 
@@ -10,7 +10,7 @@ export interface CodeResponse {
 export interface HistoryItem {
   id: string;
   prompt: string;
-  videoPath: string;
+  videoUrl: string;
   sceneFileId: string;
   timestamp: number;
 }

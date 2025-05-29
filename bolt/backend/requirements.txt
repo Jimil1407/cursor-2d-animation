@@ -5,4 +5,5 @@ python-dotenv
 requests
 dotenv
 pydantic
+firebase-admin==6.8.0
 

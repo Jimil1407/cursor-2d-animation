@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { GenerationResponse, CodeResponse } from '../types';
+import { auth } from './firebase';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -8,6 +9,19 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// Add interceptor to include Firebase ID token in every request
+api.interceptors.request.use(async (config) => {
+  const user = auth.currentUser;
+  if (user) {
+    const token = await user.getIdToken();
+    if (config.headers && typeof config.headers === 'object') {
+      (config.headers as any)['Authorization'] = `Bearer ${token}`;
+    }
+  }
+  console.log('API Request:', config.method, config.url, config.headers);
+  return config;
 });
 
 export const generateAnimation = async (prompt: string): Promise<GenerationResponse> => {
@@ -44,4 +58,9 @@ export const getVideoUrl = (videoPath: string): string => {
     return videoPath;
   }
   return `${API_BASE_URL}${videoPath}`;
+};
+
+export const fetchMyCodes = async () => {
+  const response = await api.get('/my-codes');
+  return response.data.codes;
 };

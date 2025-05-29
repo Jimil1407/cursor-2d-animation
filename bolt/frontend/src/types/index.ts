@@ -8,11 +8,13 @@ export interface CodeResponse {
 }
 
 export interface HistoryItem {
-  id: string;
-  prompt: string;
-  videoUrl: string;
-  sceneFileId: string;
-  timestamp: number;
+  scene_file_id: string;
+  code: string;
+  timestamp: string;
+  status: string;
+  video_url: string;
+  prompt?: string;
+  title?: string;
 }
 
 export interface ThemeContextType {

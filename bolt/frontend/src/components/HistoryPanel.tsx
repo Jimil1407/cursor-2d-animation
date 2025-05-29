@@ -29,11 +29,11 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onSelect, currentI
       <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
         {history.map((item) => (
           <motion.div
-            key={item.id}
+            key={item.scene_file_id}
             whileHover={{ scale: 1.02 }}
             onClick={() => onSelect(item)}
             className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors ${
-              currentId === item.id
+              currentId === item.scene_file_id
                 ? 'bg-purple-100 dark:bg-purple-900/30 ring-2 ring-purple-500'
                 : 'bg-white/60 dark:bg-gray-700/60 hover:bg-gray-100 dark:hover:bg-gray-600/60'
             }`}
@@ -45,7 +45,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onSelect, currentI
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                {item.prompt}
+                {item.title || 'Untitled'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {new Date(item.timestamp).toLocaleString()}

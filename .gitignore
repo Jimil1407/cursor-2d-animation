@@ -10,3 +10,10 @@ bolt/backend/media
 bolt/frontend/node_modules
 bolt/frontend/.env
 serviceAccountKey.json
+
+# Firebase credentials
+bolt/backend/serviceAccountKey.json
+
+# Generated files
+Video_codes/
+media/

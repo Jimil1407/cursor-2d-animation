@@ -48,7 +48,7 @@ def generate_manim_code(prompt: str) -> str:
     res_json = response.json()
 
     # Debug print if needed
-    print("Full response JSON:", res_json)
+    #print("Full response JSON:", res_json)
 
     try:
         generated_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
@@ -68,5 +68,5 @@ def generate_manim_code(prompt: str) -> str:
     if "class" not in generated_text or "Scene" not in generated_text:
         raise ValueError("The response does not contain a valid Manim Scene class.")
 
-    print("Generated Manim code:\n", generated_text)
+    #print("Generated Manim code:\n", generated_text)
     return generated_text

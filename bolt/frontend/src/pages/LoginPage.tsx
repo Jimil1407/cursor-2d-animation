@@ -4,12 +4,11 @@ import { Github, Mail } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import logo from "./logo.png";
 
 const PromptStudioLogo = () => (
   <div className="flex flex-col items-center justify-center mb-6">
     <div className="w-24 h-24 rounded-full ring-4 ring-purple-600 flex items-center justify-center bg-white dark:bg-gray-900 mb-4 shadow-lg">
-      <img src={logo} alt="PromptMotion Logo" className="h-16 w-auto" />
+      <span className="text-4xl font-bold text-purple-600">PM</span>
     </div>
   </div>
 );
@@ -40,6 +39,7 @@ const LoginPage: React.FC = () => {
       toast.error(isSignUp ? "Failed to sign up" : "Failed to sign in");
     }
   };
+
   const handleGoogleLogin = async () => {
     try {
       await signInWithGoogle();
@@ -48,6 +48,7 @@ const LoginPage: React.FC = () => {
       toast.error("Failed to sign in with Google");
     }
   };
+
   const handleGithubLogin = async () => {
     try {
       await signInWithGithub();
@@ -63,14 +64,14 @@ const LoginPage: React.FC = () => {
       <div className="hidden lg:flex w-1/2 bg-gradient-to-tr from-purple-700 via-purple-900 to-indigo-900 text-white flex-col justify-center px-16">
         <PromptStudioLogo />
         <div className="flex flex-col items-center justify-center mb-6">
-        <motion.h1
-          initial={{ opacity: 0, x: -30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.7, delay: 0.3 }}
-          className="text-5xl font-bold mb-6 max-w-md leading-snug"
-        >
-          PromptMotion
-        </motion.h1>
+          <motion.h1
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7, delay: 0.3 }}
+            className="text-5xl font-bold mb-6 max-w-md leading-snug"
+          >
+            PromptMotion
+          </motion.h1>
         </div>
         <motion.h2
           initial={{ opacity: 0, x: -30 }}
@@ -99,8 +100,6 @@ const LoginPage: React.FC = () => {
           transition={{ duration: 0.5 }}
           className="max-w-md mx-auto w-full"
         >
-          {/* <PromptStudioLogo /> */}
-
           <h2 className="text-3xl font-bold text-center mb-10 text-gray-900 dark:text-white tracking-tight">
             {isSignUp ? "Create an Account" : "Welcome Back"}
           </h2>
@@ -194,4 +193,4 @@ const LoginPage: React.FC = () => {
   );
 };
 
-export default LoginPage;
+export default LoginPage; 

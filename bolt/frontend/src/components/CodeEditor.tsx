@@ -5,6 +5,7 @@ import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
 import { Save, Loader2, AlertCircle } from 'lucide-react';
+import { auth } from '../services/firebase';
 //import toast from 'react-hot-toast';
 
 type Props = {
@@ -26,12 +27,20 @@ export default function CodeEditor({ sceneFileId, onUpdateVideo }: Props) {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`http://localhost:8000/code/${sceneFileId}`);
+        const user = auth.currentUser;
+        const token = user ? await user.getIdToken() : null;
+        const response = await fetch(`http://localhost:8000/code/${sceneFileId}`, {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
         if (!response.ok) {
           throw new Error("Failed to fetch code");
         }
-        const codeText = await response.text();
-        setCode(codeText);
+        const data = await response.json();
+        console.log('Fetched code:', data.code);
+        setCode(data.code);
       } catch (err) {
         setError("Failed to load code. Please try again.");
         console.error("Error fetching code:", err);
@@ -49,10 +58,14 @@ export default function CodeEditor({ sceneFileId, onUpdateVideo }: Props) {
       setSaving(true);
       setError(null);
       console.log("Saving code:", code);
-
+      const user = auth.currentUser;
+      const token = user ? await user.getIdToken() : null;
       const response = await fetch(`http://localhost:8000/code/${sceneFileId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ code }),
       });
 

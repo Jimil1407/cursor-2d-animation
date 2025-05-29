@@ -27,6 +27,8 @@ const HomePage: React.FC = () => {
     }
   }, [loading, user]);
 
+  const getCacheBustedUrl = (url: string) => url + '?v=' + Math.random().toString(36).substring(2);
+
   const handleGenerateAnimation = async (promptText: string) => {
     setStatus('loading');
     setError(null);
@@ -34,8 +36,8 @@ const HomePage: React.FC = () => {
 
     try {
       const response: GenerationResponse = await generateAnimation(promptText);
-      setVideoPath(response.video_url);
-      setSceneFileId(response.scene_file_id);
+      setVideoPath(getCacheBustedUrl(response.video_url));
+      setSceneFileId(response.scene_file_id !== undefined ? response.scene_file_id : null);
       setCurrentId(response.scene_file_id !== undefined ? response.scene_file_id : null);
 
       const codeText = await getCode(response.scene_file_id);
@@ -53,7 +55,7 @@ const HomePage: React.FC = () => {
 
   const handleSelectHistoryItem = async (item: HistoryItem) => {
     setPrompt(item.prompt ?? null);
-    setVideoPath(item.video_url);
+    setVideoPath(getCacheBustedUrl(item.video_url));
     setSceneFileId(item.scene_file_id);
     setCurrentId(item.scene_file_id);
 
@@ -64,6 +66,11 @@ const HomePage: React.FC = () => {
       console.error('Error fetching code for history item:', err);
       setError('Failed to load code for this animation.');
     }
+  };
+
+  // Update video after code update, but do not refetch history
+  const handleUpdateVideo = (videoUrl: string) => {
+    setVideoPath(getCacheBustedUrl(videoUrl));
   };
 
   return (
@@ -91,7 +98,7 @@ const HomePage: React.FC = () => {
               <div className="w-full lg:w-1/2">
                 <CodeEditor
                   sceneFileId={sceneFileId}
-                  onUpdateVideo={(videoUrl) => setVideoPath(videoUrl)}
+                  onUpdateVideo={handleUpdateVideo}
                 />
               </div>
             </div>

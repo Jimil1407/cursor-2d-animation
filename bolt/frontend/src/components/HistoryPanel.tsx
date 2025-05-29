@@ -18,7 +18,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onSelect, currentI
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.5 }}
-      className="w-full mb-8 backdrop-blur-sm bg-white/20 dark:bg-gray-800/20 rounded-lg p-4 ring-1 ring-gray-200 dark:ring-gray-700 shadow-lg"
+      className="w-full mb-8 backdrop-blur-sm bg-white/20 dark:bg-gray-800/20 rounded-lg p-4 ring-1 ring-gray-200 dark:ring-gray-700 shadow-lg z-30"
     >
       <div className="flex items-center mb-4">
         <Clock className="w-5 h-5 text-purple-500 mr-2" />

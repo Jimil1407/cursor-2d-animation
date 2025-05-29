@@ -45,13 +45,14 @@ const Header: React.FC = () => {
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="py-6 px-4 sm:px-6 lg:px-8 backdrop-blur-sm bg-white/10 dark:bg-gray-900/10 border-b border-gray-200 dark:border-gray-700"
+      className="py-6 px-4 sm:px-6 lg:px-8 bg-white/10 dark:bg-gray-900/10 border-b border-gray-200 dark:border-gray-700"
     >
       <div className="max-w-7xl mx-auto flex justify-between items-center">
         <div className="flex items-center">
           <motion.div
             whileHover={{ rotate: 5 }}
-            className="mr-3 p-2 rounded-lg ring-2 ring-purple-500"
+            className="mr-3 p-2 rounded-lg ring-2 ring-purple-500 cursor-pointer"
+            onClick={() => navigate('/')}
           >
             <span className="text-2xl font-bold text-purple-600">PM</span>
           </motion.div>
@@ -85,7 +86,7 @@ const Header: React.FC = () => {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 10 }}
                     transition={{ duration: 0.2 }}
-                    className="absolute right-0 mt-2 w-48 rounded-lg bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+                    className="absolute right-0 mt-2 w-48 rounded-lg bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-[9999]"
                   >
                     <div className="py-1">
                       {menuItems.map((item, index) => (

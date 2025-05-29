@@ -1,6 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { CreditCard, CheckCircle2, AlertCircle } from 'lucide-react';
+import BackButton from '../components/BackButton';
+import { getAuth } from 'firebase/auth';
 
 const BillingPage: React.FC = () => {
   // Mock data - replace with actual data from your backend
@@ -9,17 +11,17 @@ const BillingPage: React.FC = () => {
       name: 'Free',
       price: '$0',
       features: [
-        '5 animations per month',
+        '5 generations per day',
         'Basic templates',
         '720p video quality',
       ],
       current: true,
     },
     {
-      name: 'Pro',
-      price: '$10',
+      name: 'Plus',
+      price: '$5',
       features: [
-        'Unlimited animations',
+        '25 generations per day',
         'All templates',
         '4K video quality',
         'Priority support',
@@ -27,21 +29,42 @@ const BillingPage: React.FC = () => {
       current: false,
     },
     {
-      name: 'Enterprise',
-      price: 'Custom',
+      name: 'Pro',
+      price: '$12',
       features: [
-        'Custom solutions',
-        'Dedicated support',
-        'API access',
-        'Custom integrations',
+        '60 generations per day',
+        'All templates',
+        '4K video quality',
+        'Priority support',
+        'Early access to new features',
       ],
       current: false,
     },
   ];
 
+  const handleSubscribe = async (plan: string) => {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (!user) return;
+    const token = await user.getIdToken();
+    const res = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ plan, uid: user.uid }),
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-black dark:to-black text-gray-900 dark:text-gray-100 transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <BackButton />
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -104,8 +127,9 @@ const BillingPage: React.FC = () => {
                       : 'bg-purple-600 text-white hover:bg-purple-700'
                   }`}
                   disabled={plan.current}
+                  onClick={() => !plan.current && handleSubscribe(plan.name.toLowerCase())}
                 >
-                  {plan.current ? 'Current Plan' : 'Upgrade'}
+                  {plan.current ? 'Current Plan' : 'Subscribe'}
                 </button>
               </div>
             </motion.div>

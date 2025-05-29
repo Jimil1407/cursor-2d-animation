@@ -7,3 +7,4 @@ backend/Video_Codes
 backend/__pycache__
 node_modules
 backend/serviceAccountKey.json
+backend/Video_Codes

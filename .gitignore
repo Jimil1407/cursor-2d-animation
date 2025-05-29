@@ -9,3 +9,4 @@ bolt/backend/Video_Codes
 bolt/backend/media
 bolt/frontend/node_modules
 bolt/frontend/.env
+serviceAccountKey.json

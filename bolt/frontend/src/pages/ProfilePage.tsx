@@ -3,9 +3,12 @@ import { motion } from 'framer-motion';
 import { User, Mail, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import BackButton from '../components/BackButton';
+import { useUsageStats } from '../hooks/useUsageStats';
 
 const ProfilePage: React.FC = () => {
   const { user } = useAuth();
+  const stats = useUsageStats();
+  const plan = stats?.stats?.account_type || 'free';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-black dark:to-black text-gray-900 dark:text-gray-100 transition-colors duration-200">
@@ -55,6 +58,18 @@ const ProfilePage: React.FC = () => {
                     {user?.metadata?.creationTime
                       ? new Date(user.metadata.creationTime).toLocaleDateString()
                       : 'N/A'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 p-4 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+                <User className="h-5 w-5 text-purple-600" />
+                <div>
+                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                    Plan Tier
+                  </h3>
+                  <p className="text-gray-900 dark:text-white capitalize">
+                    {plan}
                   </p>
                 </div>
               </div>

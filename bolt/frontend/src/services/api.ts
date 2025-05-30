@@ -64,3 +64,20 @@ export const fetchMyCodes = async () => {
   const response = await api.get('/my-codes');
   return response.data.codes;
 };
+
+export const createRazorpayOrder = async (plan: string) => {
+  try {
+    const user = auth.currentUser;
+    if (!user) throw new Error('User not authenticated');
+    const response = await api.post('/api/create-razorpay-order', {
+      plan,
+      uid: user.uid
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error creating Razorpay order:', error);
+    throw error;
+  }
+};
+
+export { api };

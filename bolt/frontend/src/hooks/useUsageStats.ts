@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { getDatabase, ref, onValue } from 'firebase/database';
+import { useState, useEffect, useRef } from 'react';
+import { getDatabase, ref, onValue, get } from 'firebase/database';
 import { useAuth } from '../context/AuthContext';
 
 interface UsageStats {
@@ -17,6 +17,36 @@ export const useUsageStats = () => {
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+
+  // Manual refetch function
+  const refetch = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const db = getDatabase();
+      const statsRef = ref(db, `usage_stats/${user.uid}`);
+      const snapshot = await get(statsRef);
+      const data = snapshot.val();
+      if (data) {
+        setStats(data);
+      } else {
+        const initialStats: UsageStats = {
+          totalAnimations: 0,
+          remainingAnimations: 5,
+          totalRenderTime: 0,
+          averageRenderTime: 0,
+          lastUpdated: new Date().toISOString(),
+          account_type: 'free'
+        };
+        setStats(initialStats);
+      }
+      setLoading(false);
+    } catch (err: any) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -37,10 +67,11 @@ export const useUsageStats = () => {
           // Initialize stats if they don't exist
           const initialStats: UsageStats = {
             totalAnimations: 0,
-            remainingAnimations: 20,
+            remainingAnimations: 5, // Default to free tier limit
             totalRenderTime: 0,
             averageRenderTime: 0,
             lastUpdated: new Date().toISOString(),
+            account_type: 'free'
           };
           setStats(initialStats);
         }
@@ -53,8 +84,14 @@ export const useUsageStats = () => {
       }
     );
 
-    return () => unsubscribe();
+    unsubscribeRef.current = unsubscribe;
+
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+    };
   }, [user]);
 
-  return { stats, loading, error };
+  return { stats, loading, error, refetch };
 }; 

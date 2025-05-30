@@ -100,13 +100,16 @@ def save_and_render(code: str, uid: str, prompt: str = "", file_id: str = None):
         usage_ref = db.reference(f'usage_stats/{uid}')
         stats = usage_ref.get() or {
             'totalAnimations': 0,
-            'remainingAnimations': 20,
+            'remainingAnimations': 5,  # Default to free tier limit
             'totalRenderTime': 0,
             'averageRenderTime': 0,
-            'lastUpdated': datetime.now().isoformat()
+            'lastUpdated': datetime.now().isoformat(),
+            'account_type': 'free'
         }
+        
+        # Update total stats
         stats['totalAnimations'] = stats.get('totalAnimations', 0) + 1
-        stats['remainingAnimations'] = max(0, stats.get('remainingAnimations', 20) - 1)
+        stats['remainingAnimations'] = max(0, stats.get('remainingAnimations', 5) - 1)
         stats['totalRenderTime'] = stats.get('totalRenderTime', 0) + render_time
         stats['averageRenderTime'] = stats['totalRenderTime'] / stats['totalAnimations']
         stats['lastUpdated'] = datetime.now().isoformat()

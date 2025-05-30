@@ -4,13 +4,15 @@ import { Sun, Moon, LogOut, User, CreditCard, Activity, Settings, ChevronDown } 
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import logo from './logo.png';
+import { Link } from 'react-router-dom';
 
 const Header: React.FC = () => {
-  const { isDarkMode, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const { isDarkMode, toggleTheme } = useTheme();
 
   const handleLogout = async () => {
     try {
@@ -45,23 +47,23 @@ const Header: React.FC = () => {
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="py-6 px-4 sm:px-6 lg:px-8 bg-white/10 dark:bg-gray-900/10 border-b border-gray-200 dark:border-gray-700"
+      className="sticky top-0 z-50 py-6 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-purple-800 to-gray-900 text-white transition-colors duration-200 border-b border-purple-700 backdrop-blur"
     >
       <div className="max-w-7xl mx-auto flex justify-between items-center">
         <div className="flex items-center">
           <motion.div
-            whileHover={{ rotate: 5 }}
-            className="mr-3 p-2 rounded-lg ring-2 ring-purple-500 cursor-pointer"
+            whileHover={{ rotate: 5, scale: 1.08 }}
+            className="mr-3 cursor-pointer"
             onClick={() => navigate('/')}
           >
-            <span className="text-2xl font-bold text-purple-600">PM</span>
+            <img src={logo} alt="PromptMotion Logo" className="w-12 h-12 rounded-full ring-4 ring-purple-500 bg-white dark:bg-gray-900 shadow-lg object-cover" />
           </motion.div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-2xl font-bold text-white">
               PromptMotion
             </h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Create beautiful math animations with AI
+            <p className="text-sm text-purple-200">
+              Animate in a Snap
             </p>
           </div>
         </div>
@@ -122,7 +124,7 @@ const Header: React.FC = () => {
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
             onClick={toggleTheme}
-            className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+            className="p-2 rounded-full bg-purple-600 text-white hover:bg-purple-700 transition-colors"
             aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
           >
             {isDarkMode ? (

@@ -1,11 +1,11 @@
-# Bolt - 2D Animation Platform
+# PromptMotion - 2D Animation Platform
 
-Bolt is a modern web application that enables users to create and manage 2D animations. The platform consists of a React-based frontend, a Python backend, and Firebase integration for data management.
+PromptMotion is a modern web application that enables users to create and manage 2D animations. The platform consists of a React-based frontend, a Python backend, and Firebase integration for data management.
 
 ## Project Structure
 
 ```
-bolt/
+promptmotion/
 ├── frontend/           # React + TypeScript frontend application
 ├── backend/           # Python FastAPI backend
 └── firebase/          # Firebase configuration and rules

@@ -1,6 +1,6 @@
-# Frontend Documentation
+# PromptMotion Frontend Documentation
 
-This document provides detailed information about the frontend architecture, components, and development guidelines.
+This document provides detailed information about the PromptMotion frontend architecture, components, and development guidelines.
 
 ## Technology Stack
 

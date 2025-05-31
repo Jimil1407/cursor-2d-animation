@@ -1,6 +1,6 @@
-# Backend API Documentation
+# PromptMotion Backend API Documentation
 
-This document provides detailed information about the backend API endpoints, their request/response formats, and usage examples.
+This document provides detailed information about the PromptMotion backend API endpoints, their request/response formats, and usage examples.
 
 ## Base URL
 

@@ -11,8 +11,26 @@ interface VideoPlayerProps {
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, prompt }) => {
   if (!videoUrl) return null;
 
-  const finalVideoUrl = videoUrl?.startsWith("http") ? videoUrl : getVideoUrl(videoUrl);
-  console.log(finalVideoUrl);
+  const finalVideoUrl = videoUrl.startsWith("http") ? videoUrl : getVideoUrl(videoUrl);
+  console.log('Video URL:', finalVideoUrl);
+
+  if (!finalVideoUrl) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-3xl mx-auto mb-8 backdrop-blur-sm bg-white/20 dark:bg-gray-800/20 rounded-lg p-4 ring-1 ring-gray-200 dark:ring-gray-700 shadow-lg"
+      >
+        <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-gray-100">
+          Video Not Available
+        </h2>
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          The video is still being processed. Please wait a moment and try refreshing.
+        </p>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -31,6 +49,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, prompt }) => {
       )}
       <div className="relative rounded-lg overflow-hidden bg-black aspect-video shadow-md">
         <video
+          key={finalVideoUrl}
           src={finalVideoUrl}
           controls
           controlsList="nodownload"

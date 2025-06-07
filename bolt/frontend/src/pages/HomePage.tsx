@@ -101,7 +101,10 @@ const HomePage: React.FC = () => {
     }
   }, [loading, user]);
 
-  const getCacheBustedUrl = (url: string) => url + '?v=' + Math.random().toString(36).substring(2);
+  const getCacheBustedUrl = (url: string) => {
+    if (!url) return '';
+    return url + '?v=' + Math.random().toString(36).substring(2);
+  };
 
   const handleGenerateAnimation = async (promptText: string) => {
     setStatus('loading');
@@ -110,7 +113,9 @@ const HomePage: React.FC = () => {
 
     try {
       const response: GenerationResponse = await generateAnimation(promptText);
-      setVideoPath(getCacheBustedUrl(response.video_url));
+      if (response.video_url) {
+        setVideoPath(getCacheBustedUrl(response.video_url));
+      }
       setSceneFileId(response.scene_file_id !== undefined ? response.scene_file_id : null);
       setCurrentId(response.scene_file_id !== undefined ? response.scene_file_id : null);
 

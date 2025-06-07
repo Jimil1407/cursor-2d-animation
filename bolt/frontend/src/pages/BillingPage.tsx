@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import { createRazorpayOrder } from '../services/api';
 import toast from 'react-hot-toast';
 import { auth } from '../services/firebase';
-import { api } from '../services/api';
+import api from '../services/api';
 import { PaymentResultModal } from '../components/PaymentResultModal';
 import { useAuth } from '../context/AuthContext';
 import { useUsageStats } from '../hooks/useUsageStats';

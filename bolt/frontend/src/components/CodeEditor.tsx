@@ -6,6 +6,7 @@ import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
 import { Save, Loader2, AlertCircle } from 'lucide-react';
 import { auth } from '../services/firebase';
+import { getCode, updateCode } from '../services/api';
 //import toast from 'react-hot-toast';
 
 type Props = {
@@ -27,20 +28,9 @@ export default function CodeEditor({ sceneFileId, onUpdateVideo }: Props) {
       try {
         setLoading(true);
         setError(null);
-        const user = auth.currentUser;
-        const token = user ? await user.getIdToken() : null;
-        const response = await fetch(`http://localhost:8000/code/${sceneFileId}`, {
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        });
-        if (!response.ok) {
-          throw new Error("Failed to fetch code");
-        }
-        const data = await response.json();
-        console.log('Fetched code:', data.code);
-        setCode(data.code);
+        const code = await getCode(sceneFileId);
+        console.log('Fetched code:', code);
+        setCode(code);
       } catch (err) {
         setError("Failed to load code. Please try again.");
         console.error("Error fetching code:", err);
@@ -58,23 +48,9 @@ export default function CodeEditor({ sceneFileId, onUpdateVideo }: Props) {
       setSaving(true);
       setError(null);
       console.log("Saving code:", code);
-      const user = auth.currentUser;
-      const token = user ? await user.getIdToken() : null;
-      const response = await fetch(`http://localhost:8000/code/${sceneFileId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ code }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to save code");
-      }
-
-      const data = await response.json();
-      onUpdateVideo(data.video_url);  // Use the Firebase video URL directly
+      await updateCode(sceneFileId, code);
+      // The video URL will be updated through the API response
+      onUpdateVideo(code);  // This will trigger a re-render of the video
 
     } catch (err) {
       setError("Failed to save changes. Please try again.");

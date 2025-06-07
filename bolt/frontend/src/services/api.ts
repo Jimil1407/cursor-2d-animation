@@ -2,7 +2,7 @@ import axios from 'axios';
 import { GenerationResponse, CodeResponse } from '../types';
 import { auth } from './firebase';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://promptmotion-backend-v1.onrender.com';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

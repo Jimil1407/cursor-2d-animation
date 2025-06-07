@@ -3,12 +3,12 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, GithubAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyCXE7NrRlYYNrkMMESL_bOAezkbFCd_MdA",
-    authDomain: "prompmotion-auth.firebaseapp.com",
-    projectId: "prompmotion-auth",
-    storageBucket: "prompmotion-auth.firebasestorage.app",
-    messagingSenderId: "397157377679",
-    appId: "1:397157377679:web:e914a96717f0130b2432fa"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);

@@ -313,7 +313,7 @@ async def razorpay_webhook(request: Request):
             usage_stats = usage_stats_ref.get() or {}
             usage_stats['account_type'] = plan
             usage_stats['limit'] = limit
-            usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f'users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}').get() or 0))
+            usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
             usage_stats_ref.set(usage_stats)
     return {"status": "success"}
 
@@ -346,7 +346,7 @@ async def verify_razorpay_payment(request: Request):
             usage_stats = usage_stats_ref.get() or {}
             usage_stats['account_type'] = plan
             usage_stats['limit'] = limit
-            usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f'users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}').get() or 0))
+            usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
             usage_stats_ref.set(usage_stats)
             return {"success": True}
         else:
@@ -379,7 +379,7 @@ async def downgrade_to_free(request: Request):
     usage_stats = usage_stats_ref.get() or {}
     usage_stats['account_type'] = 'free'
     usage_stats['limit'] = limit
-    usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f'users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}').get() or 0))
+    usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
     usage_stats_ref.set(usage_stats)
     return {"success": True}
 

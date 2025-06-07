@@ -1,28 +1,59 @@
 import axios from 'axios';
 import { GenerationResponse, CodeResponse } from '../types';
-import { auth } from './firebase';
+import { getAuth } from 'firebase/auth';
 
-const API_BASE_URL = 'https://promptmotion-backend-v1.onrender.com';
+const API_URL = 'https://promptmotion-backend-v1.onrender.com';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
+  withCredentials: true,
 });
 
-// Add interceptor to include Firebase ID token in every request
-api.interceptors.request.use(async (config) => {
-  const user = auth.currentUser;
-  if (user) {
-    const token = await user.getIdToken();
-    if (config.headers && typeof config.headers === 'object') {
-      (config.headers as any)['Authorization'] = `Bearer ${token}`;
+// Request interceptor
+api.interceptors.request.use(
+  async (config) => {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    
+    if (user) {
+      const token = await user.getIdToken();
+      config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Add CORS headers explicitly
+    config.headers['Access-Control-Allow-Origin'] = '*';
+    config.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+    config.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+    
+    return config;
+  },
+  (error) => {
+    console.error('API Request Error:', error);
+    return Promise.reject(error);
   }
-  console.log('API Request:', config.method, config.url, config.headers);
-  return config;
-});
+);
+
+// Response interceptor
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('API Error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      headers: error.response?.headers,
+      config: {
+        url: error.config?.url,
+        method: error.config?.method,
+        headers: error.config?.headers,
+      }
+    });
+    return Promise.reject(error);
+  }
+);
 
 export const generateAnimation = async (prompt: string): Promise<GenerationResponse> => {
   try {
@@ -57,7 +88,7 @@ export const getVideoUrl = (videoPath: string): string => {
   if (videoPath.startsWith('http')) {
     return videoPath;
   }
-  return `${API_BASE_URL}${videoPath}`;
+  return `${API_URL}${videoPath}`;
 };
 
 export const fetchMyCodes = async () => {
@@ -67,7 +98,7 @@ export const fetchMyCodes = async () => {
 
 export const createRazorpayOrder = async (plan: string) => {
   try {
-    const user = auth.currentUser;
+    const user = getAuth().currentUser;
     if (!user) throw new Error('User not authenticated');
     const response = await api.post('/api/create-razorpay-order', {
       plan,
@@ -80,4 +111,4 @@ export const createRazorpayOrder = async (plan: string) => {
   }
 };
 
-export { api };
+export default api;

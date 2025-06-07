@@ -32,13 +32,23 @@ class PromptInput(BaseModel):
 
 app = FastAPI()
 app.mount("/media", StaticFiles(directory="media"), name="media")
-# Allow frontend access
+
+# Add debugging middleware
+@app.middleware("http")
+async def debug_middleware(request: Request, call_next):
+    print(f"Request headers: {request.headers}")
+    response = await call_next(request)
+    print(f"Response headers: {response.headers}")
+    return response
+
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://promptmotion.vercel.app"],
+    allow_origins=["*"],  # Allow all origins temporarily for debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 @app.get("/health")

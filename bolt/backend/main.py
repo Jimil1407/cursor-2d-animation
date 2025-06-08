@@ -12,7 +12,7 @@ import firebase_admin
 from datetime import datetime
 from typing import Optional
 import razorpay
-from razorpay_config import razorpay_client, SUBSCRIPTION_PLANS
+from razorpay_config import razorpay_client, SUBSCRIPTION_PLANS, SUBSCRIPTION_PLAN_IDS
 from dotenv import load_dotenv
 import hmac
 import hashlib
@@ -282,36 +282,74 @@ async def verify_token(request: Request):
 
 @app.post("/api/create-razorpay-order")
 async def create_razorpay_order(request: Request):
-    data = await request.json()
-    plan = data.get("plan")
-    uid = data.get("uid")
-    if plan not in SUBSCRIPTION_PLANS:
-        raise HTTPException(status_code=400, detail="Invalid plan")
-    
-    if plan == "free":
-        raise HTTPException(status_code=400, detail="Cannot create subscription for free plan")
-    
     try:
-        # Create a subscription
-        subscription = razorpay_client.subscription.create({
-            "plan_id": SUBSCRIPTION_PLAN_IDS[plan],
-            "customer_notify": 1,
-            "quantity": 1,
-            "notes": {
-                "uid": uid,
-                "plan": plan
-            }
-        })
+        print("Debug: Starting create_razorpay_order")
+        print(f"Debug: SUBSCRIPTION_PLAN_IDS available: {SUBSCRIPTION_PLAN_IDS}")
+        print(f"Debug: SUBSCRIPTION_PLANS available: {SUBSCRIPTION_PLANS}")
         
-        return {
-            "subscription_id": subscription["id"],
-            "key_id": os.getenv("RAZORPAY_KEY_ID"),
-            "amount": SUBSCRIPTION_PLANS[plan]["amount"],
-            "currency": "INR"
-        }
+        data = await request.json()
+        plan = data.get("plan")
+        uid = data.get("uid")
+        
+        print(f"Creating Razorpay order for plan: {plan}, uid: {uid}")
+        
+        if not plan or not uid:
+            print(f"Missing required fields. Plan: {plan}, UID: {uid}")
+            raise HTTPException(status_code=400, detail="Missing required fields: plan and uid")
+        
+        if plan not in SUBSCRIPTION_PLANS:
+            print(f"Invalid plan: {plan}")
+            raise HTTPException(status_code=400, detail=f"Invalid plan: {plan}")
+        
+        if plan == "free":
+            print("Cannot create subscription for free plan")
+            raise HTTPException(status_code=400, detail="Cannot create subscription for free plan")
+        
+        if plan not in SUBSCRIPTION_PLAN_IDS:
+            print(f"No plan ID found for plan: {plan}")
+            raise HTTPException(status_code=400, detail=f"No plan ID found for plan: {plan}")
+        
+        try:
+            print(f"Using plan ID: {SUBSCRIPTION_PLAN_IDS[plan]}")
+            # Create a subscription
+            subscription = razorpay_client.subscription.create({
+                "plan_id": SUBSCRIPTION_PLAN_IDS[plan],
+                "customer_notify": 1,
+                "quantity": 1,
+                "total_count": 12,  # 12 months subscription
+                "notes": {
+                    "uid": uid,
+                    "plan": plan
+                }
+            })
+            
+            print(f"Subscription created successfully: {subscription}")
+            
+            return {
+                "subscription_id": subscription["id"],
+                "key_id": os.getenv("RAZORPAY_KEY_ID"),
+                "amount": SUBSCRIPTION_PLANS[plan]["amount"],
+                "currency": "INR"
+            }
+        except razorpay.errors.BadRequestError as e:
+            print(f"Razorpay BadRequestError: {str(e)}")
+            if hasattr(e, 'error'):
+                print(f"Razorpay error details: {e.error}")
+            raise HTTPException(status_code=400, detail=f"Invalid request to Razorpay: {str(e)}")
+        except razorpay.errors.ServerError as e:
+            print(f"Razorpay ServerError: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Razorpay server error: {str(e)}")
+        except Exception as e:
+            print(f"Unexpected error creating subscription: {str(e)}")
+            print(f"Error type: {type(e)}")
+            if hasattr(e, 'error'):
+                print(f"Razorpay error details: {e.error}")
+            raise HTTPException(status_code=500, detail=f"Failed to create subscription: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error creating subscription: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to create subscription")
+        print(f"Unexpected error in create-razorpay-order: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/api/razorpay-webhook")
 async def razorpay_webhook(request: Request):
@@ -416,18 +454,29 @@ async def cancel_subscription(request: Request):
         raise HTTPException(status_code=400, detail="Missing uid")
     
     try:
-        # Get user's subscription ID from Firebase
+        # Get user's subscription data from Firebase
         user_ref = db.reference(f'users/{uid}')
         user_data = user_ref.get()
+        current_plan = user_data.get('accountType', 'free')
+        
+        if current_plan == 'free':
+            # For free tier, just return success
+            return {"success": True, "message": "Already on free tier"}
+        
+        # Get subscription ID
         subscription_id = user_data.get('subscription', {}).get('subscription_id')
         
         if not subscription_id:
-            raise HTTPException(status_code=400, detail="No active subscription found")
+            raise HTTPException(status_code=400, detail="No active subscription found. Please contact support.")
         
         # Cancel the subscription in Razorpay
-        razorpay_client.subscription.cancel(subscription_id)
+        try:
+            razorpay_client.subscription.cancel(subscription_id)
+        except Exception as e:
+            print(f"Error cancelling Razorpay subscription: {str(e)}")
+            raise HTTPException(status_code=400, detail="Failed to cancel subscription in Razorpay. Please try again or contact support.")
         
-        # Update user's subscription in Firebase
+        # Only update Firebase if Razorpay cancellation was successful
         user_ref.update({
             'accountType': 'free',
             'subscription': {
@@ -448,8 +497,10 @@ async def cancel_subscription(request: Request):
         usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
         usage_stats_ref.set(usage_stats)
         
-        return {"success": True}
+        return {"success": True, "message": "Successfully cancelled subscription and downgraded to free tier"}
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error cancelling subscription: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to cancel subscription")
+        print(f"Error in cancel_subscription: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to process subscription cancellation. Please try again or contact support.")
 

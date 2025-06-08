@@ -4,7 +4,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copy the current directory contents into the container at /app
-COPY . .
+COPY requirements.txt requirements.txt
 
 RUN apt-get update -qq \
     && apt-get install --no-install-recommends -y \
@@ -25,5 +25,7 @@ RUN apt-get update -qq \
 EXPOSE 8000
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

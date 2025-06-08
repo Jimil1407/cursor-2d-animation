@@ -88,7 +88,7 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex relative overflow-hidden">
+    <div className="min-h-screen flex flex-col lg:flex-row relative overflow-hidden">
       {/* Animated gradient blobs and extra bg elements */}
       <div className="absolute -top-32 -left-32 w-96 h-96 bg-purple-400 opacity-30 rounded-full blur-3xl animate-pulse z-0" />
       <div className="absolute top-1/2 right-0 w-80 h-80 bg-indigo-400 opacity-20 rounded-full blur-2xl animate-pulse z-0" />
@@ -125,16 +125,16 @@ const LoginPage: React.FC = () => {
         className="hidden lg:block absolute right-10 top-1/4 w-96 h-96 bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 opacity-60 rounded-full blur-3xl z-0"
       />
       {/* Left side branding/info */}
-      <div className="flex flex-col items-center justify-center w-full lg:w-1/2 bg-gradient-to-tr from-purple-700 via-purple-900 to-indigo-900 text-white px-8 py-12 lg:px-16 relative z-10">
+      <div className="flex flex-col items-center justify-center w-full lg:w-1/2 bg-gradient-to-tr from-purple-700 via-purple-900 to-indigo-900 text-white px-4 sm:px-8 py-8 lg:px-16 lg:py-12 relative z-10">
         <PromptStudioLogo />
-        <div className="flex flex-col items-center justify-center mb-6">
+        <div className="flex flex-col items-center justify-center mb-4 lg:mb-6">
           <FunPromptMotion />
         </div>
         <motion.h2
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.7, delay: 0.5 }}
-          className="text-3xl lg:text-4xl font-bold mb-6 max-w-md leading-snug text-center"
+          className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-4 lg:mb-6 max-w-md leading-snug text-center"
         >
           <motion.span
             initial={{ color: '#fff' }}
@@ -148,7 +148,7 @@ const LoginPage: React.FC = () => {
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.7, delay: 0.8 }}
-          className="max-w-md text-purple-200 text-lg text-center"
+          className="max-w-md text-purple-200 text-base sm:text-lg text-center px-4"
         >
           Create stunning videos from prompts, edit code, and build your
           animation history — all in one place.
@@ -156,15 +156,15 @@ const LoginPage: React.FC = () => {
       </div>
 
       {/* Right side form */}
-      <div className="flex flex-col justify-center w-full lg:w-1/2 px-8 sm:px-16 md:px-24 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black relative z-10">
+      <div className="flex flex-col justify-center w-full lg:w-1/2 px-4 sm:px-8 md:px-16 lg:px-24 py-8 lg:py-12 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="max-w-md mx-auto w-full bg-white/70 dark:bg-gray-900/70 rounded-2xl shadow-lg py-6 px-8 backdrop-blur-lg border border-white/30 dark:border-gray-800/40 font-sans"
+          className="max-w-md mx-auto w-full bg-white/70 dark:bg-gray-900/70 rounded-2xl shadow-lg py-6 px-4 sm:px-8 backdrop-blur-lg border border-white/30 dark:border-gray-800/40 font-sans"
         >
           <h2
-            className="text-6xl font-light lowercase tracking-wide text-center mb-6 bg-gradient-to-r from-white to-purple-400 bg-clip-text text-transparent"
+            className="text-4xl sm:text-5xl lg:text-6xl font-light lowercase tracking-wide text-center mb-4 lg:mb-6 bg-gradient-to-r from-white to-purple-400 bg-clip-text text-transparent"
             style={{ fontFamily: "'Montserrat', 'system-ui', 'sans-serif'" }}
           >
             {isSignUp ? (
@@ -178,35 +178,35 @@ const LoginPage: React.FC = () => {
             )}
           </h2>
 
-          <div className="text-center mb-6">
-            <p className="text-gray-600 dark:text-gray-400">
+          <div className="text-center mb-4 lg:mb-6">
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
               {isSignUp ? "Sign up for a new account" : "Sign in to continue to your account"}
             </p>
           </div>
-          <form onSubmit={handleEmailAuth} className="space-y-5">
+          <form onSubmit={handleEmailAuth} className="space-y-4 lg:space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 lg:mb-3">
                 Email address
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-full border border-gray-300 dark:border-gray-700 px-4 py-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all shadow-sm hover:shadow-md focus:shadow-lg font-sans"
+                className="w-full rounded-full border border-gray-300 dark:border-gray-700 px-4 py-2.5 lg:py-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all shadow-sm hover:shadow-md focus:shadow-lg font-sans text-sm sm:text-base"
                 placeholder="you@example.com"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 lg:mb-3">
                 Password
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-full border border-gray-300 dark:border-gray-700 px-4 py-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all shadow-sm hover:shadow-md focus:shadow-lg font-sans"
+                className="w-full rounded-full border border-gray-300 dark:border-gray-700 px-4 py-2.5 lg:py-3 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all shadow-sm hover:shadow-md focus:shadow-lg font-sans text-sm sm:text-base"
                 placeholder="••••••••"
                 required
               />
@@ -214,20 +214,20 @@ const LoginPage: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-3 rounded-full bg-purple-600 px-6 py-3 text-white font-semibold hover:bg-purple-700 active:scale-95 transition-all shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full flex items-center justify-center gap-3 rounded-full bg-purple-600 px-4 lg:px-6 py-2.5 lg:py-3 text-white text-sm sm:text-base font-semibold hover:bg-purple-700 active:scale-95 transition-all shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
-              <Mail className="w-6 h-6" />
+              <Mail className="w-5 h-5 lg:w-6 lg:h-6" />
               {isSignUp ? "Sign Up with Email" : "Sign In with Email"}
             </button>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+            <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-3 lg:mt-4">
               By signing in, you agree to our <a href="/terms" className="text-purple-600 hover:text-purple-700 hover:underline">Terms of Service</a> and <a href="/privacy" className="text-purple-600 hover:text-purple-700 hover:underline">Privacy Policy</a>.
             </p>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-4 lg:mt-6 text-center">
             <button
               onClick={() => setIsSignUp(!isSignUp)}
-              className="text-purple-600 dark:text-purple-400 font-medium hover:underline transition-colors"
+              className="text-sm sm:text-base text-purple-600 dark:text-purple-400 font-medium hover:underline transition-colors"
             >
               {isSignUp
                 ? "Already have an account? Sign in"
@@ -235,36 +235,36 @@ const LoginPage: React.FC = () => {
             </button>
           </div>
 
-          <div className="mt-10">
+          <div className="mt-8 lg:mt-10">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-gray-300 dark:border-gray-700"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-3 bg-gray-50 dark:bg-gray-900 text-gray-500 select-none">
+                <span className="px-3 bg-gray-50 dark:bg-gray-900 text-gray-500 select-none text-xs sm:text-sm">
                   Or continue with
                 </span>
               </div>
             </div>
 
-            <div className="mt-8 grid grid-cols-2 gap-4">
+            <div className="mt-6 lg:mt-8 grid grid-cols-2 gap-3 lg:gap-4">
               <button
                 onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center gap-3 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 active:scale-95 transition-all px-4 py-3 font-medium shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full flex items-center justify-center gap-2 lg:gap-3 rounded-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 active:scale-95 transition-all px-3 lg:px-4 py-2 lg:py-3 text-sm sm:text-base font-medium shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <img
                   src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
                   alt="Google logo"
-                  className="w-6 h-6"
+                  className="w-5 h-5 lg:w-6 lg:h-6"
                 />
                 Google
               </button>
 
               <button
                 onClick={handleGithubLogin}
-                className="w-full flex items-center justify-center gap-3 rounded-full bg-gray-900 text-white font-medium hover:bg-gray-800 active:scale-95 transition-all px-4 py-3 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="w-full flex items-center justify-center gap-2 lg:gap-3 rounded-full bg-gray-900 text-white text-sm sm:text-base font-medium hover:bg-gray-800 active:scale-95 transition-all px-3 lg:px-4 py-2 lg:py-3 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
-                <Github className="w-6 h-6" />
+                <Github className="w-5 h-5 lg:w-6 lg:h-6" />
                 GitHub
               </button>
             </div>

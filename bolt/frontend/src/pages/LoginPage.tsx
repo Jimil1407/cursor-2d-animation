@@ -17,7 +17,7 @@ const FunPromptMotion = () => {
   const text = "PromptMotion";
   return (
     <motion.span
-      className="inline-block relative text-5xl font-bold mb-6 max-w-md leading-snug"
+      className="inline-block relative text-2xl sm:text-3xl lg:text-5xl font-bold mb-6 max-w-[200px] sm:max-w-md leading-snug"
       style={{
         WebkitTextFillColor: 'transparent',
         backgroundClip: 'text',

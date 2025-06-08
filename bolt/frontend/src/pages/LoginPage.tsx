@@ -124,17 +124,17 @@ const LoginPage: React.FC = () => {
         transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
         className="hidden lg:block absolute right-10 top-1/4 w-96 h-96 bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 opacity-60 rounded-full blur-3xl z-0"
       />
-      {/* Left side branding/info */}
-      <div className="flex flex-col items-center justify-center w-full lg:w-1/2 bg-gradient-to-tr from-purple-700 via-purple-900 to-indigo-900 text-white px-4 sm:px-8 py-8 lg:px-16 lg:py-12 relative z-10">
+      {/* Left side branding/info - hidden on mobile */}
+      <div className="hidden lg:flex flex-col items-center justify-center w-1/2 bg-gradient-to-tr from-purple-700 via-purple-900 to-indigo-900 text-white px-16 py-12 relative z-10">
         <PromptStudioLogo />
-        <div className="flex flex-col items-center justify-center mb-4 lg:mb-6">
+        <div className="flex flex-col items-center justify-center mb-6">
           <FunPromptMotion />
         </div>
         <motion.h2
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.7, delay: 0.5 }}
-          className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-4 lg:mb-6 max-w-md leading-snug text-center"
+          className="text-4xl font-bold mb-6 max-w-md leading-snug text-center"
         >
           <motion.span
             initial={{ color: '#fff' }}
@@ -148,7 +148,7 @@ const LoginPage: React.FC = () => {
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.7, delay: 0.8 }}
-          className="max-w-md text-purple-200 text-base sm:text-lg text-center px-4"
+          className="max-w-md text-purple-200 text-lg text-center"
         >
           Create stunning videos from prompts, edit code, and build your
           animation history — all in one place.
@@ -163,6 +163,14 @@ const LoginPage: React.FC = () => {
           transition={{ duration: 0.5 }}
           className="max-w-md mx-auto w-full bg-white/70 dark:bg-gray-900/70 rounded-2xl shadow-lg py-6 px-4 sm:px-8 backdrop-blur-lg border border-white/30 dark:border-gray-800/40 font-sans"
         >
+          {/* Mobile-only branding */}
+          <div className="lg:hidden flex flex-col items-center mb-6">
+            <PromptStudioLogo />
+            <div className="mt-4">
+              <FunPromptMotion />
+            </div>
+          </div>
+
           <h2
             className="text-4xl sm:text-5xl lg:text-6xl font-light lowercase tracking-wide text-center mb-4 lg:mb-6 bg-gradient-to-r from-white to-purple-400 bg-clip-text text-transparent"
             style={{ fontFamily: "'Montserrat', 'system-ui', 'sans-serif'" }}

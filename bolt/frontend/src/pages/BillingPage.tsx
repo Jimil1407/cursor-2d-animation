@@ -4,7 +4,7 @@ import { CreditCard, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import BackButton from '../components/BackButton';
 import { getAuth } from 'firebase/auth';
 import { useSearchParams } from 'react-router-dom';
-import { createRazorpayOrder } from '../services/api';
+import { cancelSubscription, createRazorpayOrder } from '../services/api';
 import toast from 'react-hot-toast';
 import { auth } from '../services/firebase';
 import api from '../services/api';
@@ -43,7 +43,7 @@ const BillingPage: React.FC = () => {
   const plans = [
     {
       name: 'Free',
-      price: '$0',
+      price: '₹0',
       features: [
         '5 generations per day',
         'Basic templates',
@@ -53,7 +53,7 @@ const BillingPage: React.FC = () => {
     },
     {
       name: 'Plus',
-      price: '$5',
+      price: '₹500',
       features: [
         '25 generations per day',
         'All templates',
@@ -64,7 +64,7 @@ const BillingPage: React.FC = () => {
     },
     {
       name: 'Pro',
-      price: '$12',
+      price: '₹1200',
       features: [
         '60 generations per day',
         'All templates',
@@ -101,42 +101,36 @@ const BillingPage: React.FC = () => {
       setLoadingPlan(plan);
       const user = auth.currentUser;
       if (plan === 'free') {
-        // Downgrade to free without payment
-        await api.post('/api/downgrade-to-free', { uid: user?.uid });
-        setModalSuccess(true);
-        setModalMessage('You have been downgraded to the Free plan.');
-        setModalOpen(true);
+        // Cancel subscription if exists
+        try {
+          await cancelSubscription();
+          setModalSuccess(true);
+          setModalMessage('You have been downgraded to the Free plan.');
+          setModalOpen(true);
+        } catch (error) {
+          setModalSuccess(false);
+          setModalMessage('Error cancelling subscription. Please try again.');
+          setModalOpen(true);
+        }
         setLoadingPlan(null);
         return;
       }
+
       const data = await createRazorpayOrder(plan);
       const options = {
         key: data.key_id,
-        amount: data.amount,
-        currency: data.currency,
-        order_id: data.order_id,
+        subscription_id: data.subscription_id,
         name: 'PromptMotion',
         description: `Subscribe to ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
         handler: async function (response: any) {
-          setLoadingPlan(plan); // Show spinner
+          setLoadingPlan(plan);
           try {
-            const verifyRes = await api.post('/api/verify-razorpay-payment', {
-              razorpay_payment_id: response.razorpay_payment_id,
-              uid: user?.uid,
-              plan,
-            });
-            if (verifyRes.data.success) {
-              setModalSuccess(true);
-              setModalMessage('Subscription activated! Enjoy your new plan.');
-              setModalOpen(true);
-            } else {
-              setModalSuccess(false);
-              setModalMessage('Payment failed: ' + (verifyRes.data.reason || 'Unknown error'));
-              setModalOpen(true);
-            }
+            setModalSuccess(true);
+            setModalMessage('Subscription activated! Enjoy your new plan.');
+            setModalOpen(true);
           } catch (err) {
             setModalSuccess(false);
-            setModalMessage('Verification failed. Please contact support.');
+            setModalMessage('Subscription activation failed. Please contact support.');
             setModalOpen(true);
           } finally {
             setLoadingPlan(null);
@@ -153,7 +147,7 @@ const BillingPage: React.FC = () => {
       rzp.open();
     } catch (error) {
       setModalSuccess(false);
-      setModalMessage('Error creating Razorpay order.');
+      setModalMessage('Error creating subscription. Please try again.');
       setModalOpen(true);
       setLoadingPlan(null);
     }
@@ -245,7 +239,7 @@ const BillingPage: React.FC = () => {
                   <span className="text-2xl md:text-4xl font-bold text-gray-900 dark:text-white">
                     {plan.price}
                   </span>
-                  {plan.price !== 'Custom' && (
+                  {plan.price !== '₹0' && (
                     <span className="text-gray-600 dark:text-gray-400 text-sm md:text-base">/month</span>
                   )}
                 </div>

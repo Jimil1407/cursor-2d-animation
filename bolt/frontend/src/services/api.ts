@@ -112,4 +112,18 @@ export const createRazorpayOrder = async (plan: string) => {
   }
 };
 
+export const cancelSubscription = async () => {
+  try {
+    const user = getAuth().currentUser;
+    if (!user) throw new Error('User not authenticated');
+    const response = await api.post('/api/cancel-subscription', {
+      uid: user.uid
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error('Error cancelling subscription:', error.response?.data || error.message);
+    throw error;
+  }
+};
+
 export default api;

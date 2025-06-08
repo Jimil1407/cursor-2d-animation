@@ -287,35 +287,58 @@ async def create_razorpay_order(request: Request):
     uid = data.get("uid")
     if plan not in SUBSCRIPTION_PLANS:
         raise HTTPException(status_code=400, detail="Invalid plan")
-    amount = SUBSCRIPTION_PLANS[plan]["amount"]
-    order = razorpay_client.order.create({
-        "amount": amount,
-        "currency": "INR",
-        "payment_capture": 1,
-        "notes": {"uid": uid, "plan": plan}
-    })
-    return {"order_id": order["id"], "amount": amount, "currency": "INR", "key_id": os.getenv("RAZORPAY_KEY_ID")}
+    
+    if plan == "free":
+        raise HTTPException(status_code=400, detail="Cannot create subscription for free plan")
+    
+    try:
+        # Create a subscription
+        subscription = razorpay_client.subscription.create({
+            "plan_id": SUBSCRIPTION_PLAN_IDS[plan],
+            "customer_notify": 1,
+            "quantity": 1,
+            "notes": {
+                "uid": uid,
+                "plan": plan
+            }
+        })
+        
+        return {
+            "subscription_id": subscription["id"],
+            "key_id": os.getenv("RAZORPAY_KEY_ID"),
+            "amount": SUBSCRIPTION_PLANS[plan]["amount"],
+            "currency": "INR"
+        }
+    except Exception as e:
+        print(f"Error creating subscription: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create subscription")
 
 @app.post("/api/razorpay-webhook")
 async def razorpay_webhook(request: Request):
     payload = await request.body()
     signature = request.headers.get("x-razorpay-signature")
     secret = os.getenv("RAZORPAY_KEY_SECRET")
+    
     # Verify signature
     generated_signature = hmac.new(
         bytes(secret, 'utf-8'),
         msg=payload,
         digestmod=hashlib.sha256
     ).hexdigest()
+    
     if signature != generated_signature:
         print("Invalid Razorpay webhook signature")
         raise HTTPException(status_code=400, detail="Invalid signature")
+    
     event = json.loads(payload)
-    if event.get('event') == 'payment.captured':
-        payment = event['payload']['payment']['entity']
-        notes = payment.get('notes', {})
+    event_type = event.get('event')
+    
+    if event_type == 'subscription.activated':
+        subscription = event['payload']['subscription']['entity']
+        notes = subscription.get('notes', {})
         uid = notes.get('uid')
         plan = notes.get('plan')
+        
         if uid and plan:
             # Update user's subscription in Firebase
             user_ref = db.reference(f'users/{uid}')
@@ -324,9 +347,9 @@ async def razorpay_webhook(request: Request):
                 'subscription': {
                     'status': 'active',
                     'plan': plan,
-                    'razorpay_payment_id': payment['id'],
-                    'razorpay_order_id': payment['order_id'],
-                    'current_period_start': payment['created_at'],
+                    'subscription_id': subscription['id'],
+                    'current_period_start': subscription['start_at'],
+                    'current_period_end': subscription['end_at'],
                 }
             })
             print(f"Activated {plan} subscription for user {uid}")
@@ -338,71 +361,95 @@ async def razorpay_webhook(request: Request):
             usage_stats['limit'] = limit
             usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
             usage_stats_ref.set(usage_stats)
-    return {"status": "success"}
-
-@app.post("/api/verify-razorpay-payment")
-async def verify_razorpay_payment(request: Request):
-    data = await request.json()
-    payment_id = data.get("razorpay_payment_id")
-    uid = data.get("uid")
-    plan = data.get("plan")
-    if not payment_id or not uid or not plan:
-        raise HTTPException(status_code=400, detail="Missing payment_id, uid, or plan")
-    try:
-        payment = razorpay_client.payment.fetch(payment_id)
-        if payment["status"] == "captured":
-            # Update user's subscription in Firebase
+    
+    elif event_type == 'subscription.charged':
+        # Handle successful payment for subscription renewal
+        payment = event['payload']['payment']['entity']
+        subscription = event['payload']['subscription']['entity']
+        notes = subscription.get('notes', {})
+        uid = notes.get('uid')
+        plan = notes.get('plan')
+        
+        if uid and plan:
+            # Update subscription end date
             user_ref = db.reference(f'users/{uid}')
             user_ref.update({
-                'accountType': plan,
+                'subscription.current_period_end': subscription['end_at']
+            })
+            print(f"Renewed {plan} subscription for user {uid}")
+    
+    elif event_type == 'subscription.cancelled':
+        subscription = event['payload']['subscription']['entity']
+        notes = subscription.get('notes', {})
+        uid = notes.get('uid')
+        
+        if uid:
+            # Downgrade to free plan
+            user_ref = db.reference(f'users/{uid}')
+            user_ref.update({
+                'accountType': 'free',
                 'subscription': {
-                    'status': 'active',
-                    'plan': plan,
-                    'razorpay_payment_id': payment_id,
-                    'razorpay_order_id': payment['order_id'],
-                    'current_period_start': payment['created_at'],
+                    'status': 'inactive',
+                    'plan': 'free',
+                    'subscription_id': None,
+                    'current_period_start': None,
+                    'current_period_end': None,
                 }
             })
-            # Update usage_stats for the new plan
-            limit = ACCOUNT_LIMITS.get(plan, 5)
+            # Update usage_stats for free plan
+            limit = ACCOUNT_LIMITS.get('free', 5)
             usage_stats_ref = db.reference(f'usage_stats/{uid}')
             usage_stats = usage_stats_ref.get() or {}
-            usage_stats['account_type'] = plan
+            usage_stats['account_type'] = 'free'
             usage_stats['limit'] = limit
             usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
             usage_stats_ref.set(usage_stats)
-            return {"success": True}
-        else:
-            return {"success": False, "reason": "Payment not captured"}
-    except Exception as e:
-        print("Error verifying Razorpay payment:", str(e))
-        raise HTTPException(status_code=500, detail="Verification failed")
+            print(f"Cancelled subscription for user {uid}")
+    
+    return {"status": "success"}
 
-@app.post("/api/downgrade-to-free")
-async def downgrade_to_free(request: Request):
+@app.post("/api/cancel-subscription")
+async def cancel_subscription(request: Request):
     data = await request.json()
     uid = data.get("uid")
     if not uid:
         raise HTTPException(status_code=400, detail="Missing uid")
-    # Update user's subscription in Firebase
-    user_ref = db.reference(f'users/{uid}')
-    user_ref.update({
-        'accountType': 'free',
-        'subscription': {
-            'status': 'inactive',
-            'plan': 'free',
-            'razorpay_payment_id': None,
-            'razorpay_order_id': None,
-            'current_period_start': None,
-        }
-    })
-    # Update usage_stats for the new plan
-    limit = ACCOUNT_LIMITS.get('free', 5)
-    usage_stats_ref = db.reference(f'usage_stats/{uid}')
-    usage_stats = usage_stats_ref.get() or {}
-    usage_stats['account_type'] = 'free'
-    usage_stats['limit'] = limit
-    usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
-    usage_stats_ref.set(usage_stats)
-    return {"success": True}
+    
+    try:
+        # Get user's subscription ID from Firebase
+        user_ref = db.reference(f'users/{uid}')
+        user_data = user_ref.get()
+        subscription_id = user_data.get('subscription', {}).get('subscription_id')
+        
+        if not subscription_id:
+            raise HTTPException(status_code=400, detail="No active subscription found")
+        
+        # Cancel the subscription in Razorpay
+        razorpay_client.subscription.cancel(subscription_id)
+        
+        # Update user's subscription in Firebase
+        user_ref.update({
+            'accountType': 'free',
+            'subscription': {
+                'status': 'inactive',
+                'plan': 'free',
+                'subscription_id': None,
+                'current_period_start': None,
+                'current_period_end': None,
+            }
+        })
+        
+        # Update usage_stats for free plan
+        limit = ACCOUNT_LIMITS.get('free', 5)
+        usage_stats_ref = db.reference(f'usage_stats/{uid}')
+        usage_stats = usage_stats_ref.get() or {}
+        usage_stats['account_type'] = 'free'
+        usage_stats['limit'] = limit
+        usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
+        usage_stats_ref.set(usage_stats)
+        
+        return {"success": True}
+    except Exception as e:
+        print(f"Error cancelling subscription: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to cancel subscription")
 

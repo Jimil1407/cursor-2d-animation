@@ -45,7 +45,9 @@ async def debug_middleware(request: Request, call_next):
 origins = [
     "https://promptmotion.vercel.app",
     "http://localhost:3000",
-    "http://localhost:8000"
+    "http://localhost:8000",
+    "http://localhost:5173",  # Add Vite development server
+    "http://127.0.0.1:5173"   # Add Vite development server alternative
 ]
 
 app.add_middleware(

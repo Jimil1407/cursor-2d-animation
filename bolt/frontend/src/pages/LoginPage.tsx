@@ -125,7 +125,7 @@ const LoginPage: React.FC = () => {
         className="hidden lg:block absolute right-10 top-1/4 w-96 h-96 bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 opacity-60 rounded-full blur-3xl z-0"
       />
       {/* Left side branding/info */}
-      <div className="hidden lg:flex w-1/2 bg-gradient-to-tr from-purple-700 via-purple-900 to-indigo-900 text-white flex-col justify-center px-16 relative z-10">
+      <div className="flex flex-col items-center justify-center w-full lg:w-1/2 bg-gradient-to-tr from-purple-700 via-purple-900 to-indigo-900 text-white px-8 py-12 lg:px-16 relative z-10">
         <PromptStudioLogo />
         <div className="flex flex-col items-center justify-center mb-6">
           <FunPromptMotion />
@@ -134,7 +134,7 @@ const LoginPage: React.FC = () => {
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.7, delay: 0.5 }}
-          className="text-4xl font-bold mb-6 max-w-md leading-snug"
+          className="text-3xl lg:text-4xl font-bold mb-6 max-w-md leading-snug text-center"
         >
           <motion.span
             initial={{ color: '#fff' }}
@@ -148,7 +148,7 @@ const LoginPage: React.FC = () => {
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.7, delay: 0.8 }}
-          className="max-w-md text-purple-200 text-lg"
+          className="max-w-md text-purple-200 text-lg text-center"
         >
           Create stunning videos from prompts, edit code, and build your
           animation history — all in one place.

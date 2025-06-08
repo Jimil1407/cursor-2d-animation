@@ -42,11 +42,17 @@ async def debug_middleware(request: Request, call_next):
     return response
 
 # Configure CORS
+origins = [
+    "https://promptmotion.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:8000"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins temporarily for debugging
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )

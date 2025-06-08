@@ -24,11 +24,6 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // Add CORS headers explicitly
-    config.headers['Access-Control-Allow-Origin'] = '*';
-    config.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-    config.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
-    
     return config;
   },
   (error) => {
@@ -59,8 +54,8 @@ export const generateAnimation = async (prompt: string): Promise<GenerationRespo
   try {
     const response = await api.post<GenerationResponse>('/generate', { prompt });
     return response.data;
-  } catch (error) {
-    console.error('Error generating animation:', error);
+  } catch (error: any) {
+    console.error('Error generating animation:', error.response?.data || error.message);
     throw error;
   }
 };
@@ -69,8 +64,8 @@ export const getCode = async (sceneFileId: string): Promise<string> => {
   try {
     const response = await api.get<CodeResponse>(`/code/${sceneFileId}`);
     return response.data.code;
-  } catch (error) {
-    console.error('Error fetching code:', error);
+  } catch (error: any) {
+    console.error('Error fetching code:', error.response?.data || error.message);
     throw error;
   }
 };
@@ -78,13 +73,14 @@ export const getCode = async (sceneFileId: string): Promise<string> => {
 export const updateCode = async (sceneFileId: string, code: string): Promise<void> => {
   try {
     await api.put(`/code/${sceneFileId}`, { code });
-  } catch (error) {
-    console.error('Error updating code:', error);
+  } catch (error: any) {
+    console.error('Error updating code:', error.response?.data || error.message);
     throw error;
   }
 };
 
 export const getVideoUrl = (videoPath: string): string => {
+  if (!videoPath) return '';
   if (videoPath.startsWith('http')) {
     return videoPath;
   }
@@ -92,8 +88,13 @@ export const getVideoUrl = (videoPath: string): string => {
 };
 
 export const fetchMyCodes = async () => {
-  const response = await api.get('/my-codes');
-  return response.data.codes;
+  try {
+    const response = await api.get('/my-codes');
+    return response.data.codes || [];
+  } catch (error: any) {
+    console.error('Error fetching codes:', error.response?.data || error.message);
+    return [];
+  }
 };
 
 export const createRazorpayOrder = async (plan: string) => {
@@ -105,8 +106,8 @@ export const createRazorpayOrder = async (plan: string) => {
       uid: user.uid
     });
     return response.data;
-  } catch (error) {
-    console.error('Error creating Razorpay order:', error);
+  } catch (error: any) {
+    console.error('Error creating Razorpay order:', error.response?.data || error.message);
     throw error;
   }
 };

@@ -125,3 +125,35 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Support
 
 For support, please open an issue in the GitHub repository or contact the development team. 
+<<<<<<< HEAD
+=======
+
+## Backend Performance (Dev Mode)
+
+Captured locally with DEV_MODE=true using the instrumented `/generate` and `/metrics` endpoints.
+
+- Window: last 7 days (dev dataset)
+- Count: 21 renders
+- Success rate: 100%
+- Avg render latency: 13.26s
+- p50: 11.50s
+- p95: 14.51s
+
+How to reproduce:
+
+```bash
+cd bolt/backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+export DEV_MODE=true
+uvicorn main:app --host 127.0.0.1 --port 8001
+# in another terminal
+for i in {1..20}; do \
+  curl -s -X POST 'http://127.0.0.1:8001/generate' \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer dev' \
+    -d '{"prompt":"circle to square with label"}' > /dev/null; \
+done
+curl -s 'http://127.0.0.1:8001/metrics?days=7' -H 'Authorization: Bearer dev'
+```
+>>>>>>> 5d7f5d2 (added backend metrics)

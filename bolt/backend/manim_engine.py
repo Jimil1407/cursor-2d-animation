@@ -5,6 +5,7 @@ from firebase_admin import storage, db
 from datetime import datetime
 from firebase_config import firebase_app
 import shutil
+from typing import Optional
 
 OUTPUT_DIR = "Video_codes"
 
@@ -40,6 +41,8 @@ def save_and_render(code: str, uid: str, prompt: str = "", file_id: str = None):
 
     # Run manim render first
     start_time = datetime.now()
+    render_success = False
+    render_error: Optional[str] = None
     try:
         result = subprocess.run(
             ["manim", file_path, "MorphScene", "-qk"],
@@ -47,16 +50,36 @@ def save_and_render(code: str, uid: str, prompt: str = "", file_id: str = None):
             capture_output=True,
             text=True,
         )
+        render_success = True
     except subprocess.CalledProcessError as e:
         print("❌ Manim render failed.")
         print("STDOUT:", e.stdout)
         print("STDERR:", e.stderr)
+        render_error = e.stderr
         code_ref.update({'status': 'failed', 'error': e.stderr})
+        # Log render metrics on failure
+        try:
+            end_time_fail = datetime.now()
+            duration_ms_fail = int((end_time_fail - start_time).total_seconds() * 1000)
+            date_key_fail = datetime.now().strftime('%Y-%m-%d')
+            metrics_ref_fail = db.reference(f'metrics/renders/{uid}/{date_key_fail}/{file_id}')
+            metrics_ref_fail.set({
+                'file_id': file_id,
+                'uid': uid,
+                'timestamp': end_time_fail.isoformat(),
+                'duration_ms': duration_ms_fail,
+                'success': False,
+                'error': e.stderr[:4000] if e.stderr else 'Unknown error',
+                'prompt_preview': (prompt or title)[:120]
+            })
+        except Exception as metrics_err:
+            print(f"Warning: Failed to record render metrics (failure): {metrics_err}")
         return {"video_url": f"Error during rendering: {e.stderr}", "file_id": file_id}
 
-    # After successful render, calculate render time
+    # After render, calculate render time
     end_time = datetime.now()
     render_time = (end_time - start_time).total_seconds() / 60  # in minutes (float)
+    duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
     # Now check the folder for mp4 files
     try:
@@ -72,20 +95,18 @@ def save_and_render(code: str, uid: str, prompt: str = "", file_id: str = None):
         video_file = mp4_files[0]  # take first mp4 found
         video_path = f"{video_folder}/{video_file}"
         
-        # Upload video to Firebase Storage under user
-        bucket = storage.bucket()
-        blob = bucket.blob(f'videos/{uid}/{file_id}/{video_file}')
-        
-        # Upload the file
-        blob.upload_from_filename(video_path)
-        print(f"Uploaded video to Firebase Storage: {blob.name}")
-        
-        # Make the blob publicly accessible
-        blob.make_public()
-        print(f"Blob public URL: {blob.public_url}")
-        
-        # Get the public URL
-        video_url = blob.public_url
+        # In dev mode, skip upload and serve local path; prod uses Firebase Storage
+        dev_mode = os.getenv('DEV_MODE', 'false').lower() == 'true'
+        if dev_mode:
+            video_url = f"/media/videos/scene_{file_id}/2160p60/{video_file}"
+        else:
+            bucket = storage.bucket()
+            blob = bucket.blob(f'videos/{uid}/{file_id}/{video_file}')
+            blob.upload_from_filename(video_path)
+            print(f"Uploaded video to Firebase Storage: {blob.name}")
+            blob.make_public()
+            print(f"Blob public URL: {blob.public_url}")
+            video_url = blob.public_url
         
         # Update status in database
         code_ref.update({
@@ -95,6 +116,22 @@ def save_and_render(code: str, uid: str, prompt: str = "", file_id: str = None):
             'title': title,
             'timestamp': timestamp
         })
+
+        # Record render metrics (success)
+        try:
+            date_key = datetime.now().strftime('%Y-%m-%d')
+            metrics_ref = db.reference(f'metrics/renders/{uid}/{date_key}/{file_id}')
+            metrics_ref.set({
+                'file_id': file_id,
+                'uid': uid,
+                'timestamp': end_time.isoformat(),
+                'duration_ms': duration_ms,
+                'success': True,
+                'error': None,
+                'prompt_preview': (prompt or title)[:120]
+            })
+        except Exception as metrics_err:
+            print(f"Warning: Failed to record render metrics: {metrics_err}")
 
         # --- USAGE STATS UPDATE ---
         usage_ref = db.reference(f'usage_stats/{uid}')
@@ -118,9 +155,11 @@ def save_and_render(code: str, uid: str, prompt: str = "", file_id: str = None):
 
         # Clean up local files (delete video file and its parent folder)
         try:
-            os.remove(video_path)
-            shutil.rmtree(video_folder)
-            os.remove(file_path)
+            # Keep local files in dev for manual inspection
+            if not dev_mode:
+                os.remove(video_path)
+                shutil.rmtree(video_folder)
+                os.remove(file_path)
         except Exception as e:
             print(f"Warning: Failed to clean up local files: {e}")
         

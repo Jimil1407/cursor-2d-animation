@@ -5,7 +5,6 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import logo from './logo.png';
-import { Link } from 'react-router-dom';
 
 const Header: React.FC = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);

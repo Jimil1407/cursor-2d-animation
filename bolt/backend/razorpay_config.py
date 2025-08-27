@@ -31,10 +31,13 @@ SUBSCRIPTION_PLAN_IDS = {
 print(f"Debug: Initialized SUBSCRIPTION_PLAN_IDS: {SUBSCRIPTION_PLAN_IDS}")
 
 # Validate plan IDs
+DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
+
 try:
     for plan_id in SUBSCRIPTION_PLAN_IDS.values():
         plan = razorpay_client.plan.fetch(plan_id)
         print(f"Successfully validated plan ID: {plan_id}")
 except Exception as e:
     print(f"Error validating Razorpay plan IDs: {str(e)}")
-    raise ValueError(f"Invalid Razorpay plan ID: {str(e)}") 
+    if not DEV_MODE:
+        raise ValueError(f"Invalid Razorpay plan ID: {str(e)}")

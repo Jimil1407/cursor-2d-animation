@@ -9,20 +9,37 @@ import re
 import os
 from firebase_admin import db, auth as firebase_auth, credentials
 import firebase_admin
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 import razorpay
-from razorpay_config import razorpay_client, SUBSCRIPTION_PLANS, SUBSCRIPTION_PLAN_IDS
+try:
+    from razorpay_config import razorpay_client, SUBSCRIPTION_PLANS, SUBSCRIPTION_PLAN_IDS
+    RAZORPAY_ENABLED = True
+except Exception as _razorpay_err:
+    print(f"Razorpay disabled (dev mode): {_razorpay_err}")
+    razorpay_client = None
+    SUBSCRIPTION_PLANS = {
+        'free': {'amount': 0},
+        'plus': {'amount': 0},
+        'pro': {'amount': 0},
+    }
+    SUBSCRIPTION_PLAN_IDS = {}
+    RAZORPAY_ENABLED = False
 from dotenv import load_dotenv
 import hmac
 import hashlib
 import json
 
 load_dotenv()
+DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 
 # Initialize Firebase with Realtime Database (only once)
 if not firebase_admin._apps:
-    cred = credentials.Certificate("../serviceAccountKey.json")
+    # Prefer local backend path in dev mode
+    cred_path = "serviceAccountKey.json"
+    if not os.path.exists(cred_path):
+        cred_path = "../serviceAccountKey.json"
+    cred = credentials.Certificate(cred_path)
     firebase_admin.initialize_app(cred, {
         'databaseURL': 'https://prompmotion-auth-default-rtdb.firebaseio.com/'
     })
@@ -64,6 +81,8 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 def get_current_user(request: Request):
+    if DEV_MODE:
+        return 'dev-user'
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer '):
         raise HTTPException(status_code=401, detail="Missing or invalid auth header")
@@ -81,6 +100,9 @@ ACCOUNT_LIMITS = {
 }
 
 def can_generate(uid, account_type):
+    if DEV_MODE:
+        # Unlimited in dev mode
+        return True, 1, ACCOUNT_LIMITS.get(account_type, 5)
     today = datetime.now().strftime('%Y-%m-%d')
     usage_ref = db.reference(f'users/{uid}/dailyUsage/{today}')
     usage = usage_ref.get() or 0
@@ -93,7 +115,7 @@ def can_generate(uid, account_type):
 @app.post("/generate")
 async def generate_video(data: PromptInput, uid: str = Depends(get_current_user)):
     # Get account type
-    account_type = db.reference(f'users/{uid}/accountType').get() or 'free'
+    account_type = 'free' if DEV_MODE else (db.reference(f'users/{uid}/accountType').get() or 'free')
     allowed, usage, limit = can_generate(uid, account_type)
     if not allowed:
         raise HTTPException(
@@ -106,10 +128,45 @@ async def generate_video(data: PromptInput, uid: str = Depends(get_current_user)
                 "account_type": account_type
             }
         )
-    code = generate_manim_code(data.prompt)
+    # Measure LLM generation time
+    if DEV_MODE:
+        # Use a deterministic MorphScene for local testing
+        llm_duration_ms = 0
+        code = (
+            "from manim import *\n\n"
+            "class MorphScene(Scene):\n"
+            "    def construct(self):\n"
+            "        circle = Circle(color=BLUE).scale(1.2)\n"
+            "        square = Square(color=GREEN).scale(1.2)\n"
+            "        label = Text('PromptMotion', font_size=36)\n"
+            "        self.play(Create(circle))\n"
+            "        self.play(Transform(circle, square))\n"
+            "        self.play(FadeIn(label.shift(DOWN*2)))\n"
+            "        self.wait(0.5)\n"
+        )
+    else:
+        llm_start = datetime.now()
+        code = generate_manim_code(data.prompt)
+        llm_end = datetime.now()
+        llm_duration_ms = int((llm_end - llm_start).total_seconds() * 1000)
+
+    # Measure end-to-end time including render
+    e2e_start = datetime.now()
     result = save_and_render(code, uid, data.prompt)
+    e2e_end = datetime.now()
+    e2e_duration_ms = int((e2e_end - e2e_start).total_seconds() * 1000)
     video_url = result["video_url"]
     scene_file_id = result["file_id"]
+    # Persist LLM/e2e timings on the code record
+    try:
+        code_ref = db.reference(f'users/{uid}/codes/{scene_file_id}')
+        code_ref.update({
+            'llm_duration_ms': llm_duration_ms,
+            'end_to_end_ms': e2e_duration_ms
+        })
+    except Exception as e:
+        print(f"Warning: Failed to attach timing metrics to code record: {e}")
+
     return {
         "video_url": video_url,
         "scene_file_id": scene_file_id,
@@ -117,6 +174,58 @@ async def generate_video(data: PromptInput, uid: str = Depends(get_current_user)
         "limit": limit,
         "account_type": account_type
     }
+
+@app.get("/metrics")
+async def get_metrics(uid: str = Depends(get_current_user), days: int = 7):
+    """Aggregate render metrics for the authenticated user over the last N days.
+    Returns count, success_rate, avg_ms, p50_ms, p95_ms.
+    """
+    try:
+        now = datetime.now()
+        durations = []
+        total = 0
+        successes = 0
+        # Collect metrics over the last `days` days
+        for i in range(days):
+            day_key = (now - timedelta(days=i)).strftime('%Y-%m-%d')
+            day_ref = db.reference(f'metrics/renders/{uid}/{day_key}')
+            day_items = day_ref.get() or {}
+            if isinstance(day_items, dict):
+                for _, m in day_items.items():
+                    total += 1
+                    if m.get('success'):
+                        successes += 1
+                    dur = m.get('duration_ms')
+                    if isinstance(dur, (int, float)):
+                        durations.append(int(dur))
+
+        durations.sort()
+        def percentile(sorted_list, pct):
+            if not sorted_list:
+                return 0
+            k = (len(sorted_list) - 1) * (pct / 100.0)
+            f = int(k)
+            c = min(f + 1, len(sorted_list) - 1)
+            if f == c:
+                return sorted_list[f]
+            return int(sorted_list[f] + (sorted_list[c] - sorted_list[f]) * (k - f))
+
+        avg_ms = int(sum(durations) / len(durations)) if durations else 0
+        p50_ms = percentile(durations, 50)
+        p95_ms = percentile(durations, 95)
+        success_rate = (successes / total) if total > 0 else 0
+
+        return {
+            'window_days': days,
+            'count': total,
+            'success_rate': success_rate,
+            'avg_ms': avg_ms,
+            'p50_ms': p50_ms,
+            'p95_ms': p95_ms,
+        }
+    except Exception as e:
+        print(f"Error aggregating metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/code/{scene_file_id}")
 def get_code(scene_file_id: str, uid: str = Depends(get_current_user)):

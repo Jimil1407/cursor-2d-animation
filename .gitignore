@@ -17,4 +17,8 @@ bolt/backend/serviceAccountKey.json
 # Generated files
 Video_codes/
 media/
+<<<<<<< HEAD
 images/
+=======
+.venv/
+>>>>>>> 5d7f5d2 (added backend metrics)

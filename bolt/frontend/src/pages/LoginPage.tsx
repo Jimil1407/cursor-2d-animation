@@ -64,7 +64,7 @@ const LoginPage: React.FC = () => {
         await signInWithEmail(email, password);
       }
       navigate("/");
-    } catch (error) {
+    } catch {
       toast.error(isSignUp ? "Failed to sign up" : "Failed to sign in");
     }
   };
@@ -73,7 +73,7 @@ const LoginPage: React.FC = () => {
     try {
       await signInWithGoogle();
       navigate("/");
-    } catch (error) {
+    } catch {
       toast.error("Failed to sign in with Google");
     }
   };
@@ -82,7 +82,7 @@ const LoginPage: React.FC = () => {
     try {
       await signInWithGithub();
       navigate("/");
-    } catch (error) {
+    } catch {
       toast.error("Failed to sign in with GitHub");
     }
   };

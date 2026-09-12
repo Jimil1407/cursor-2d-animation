@@ -11,8 +11,7 @@ interface VideoPlayerProps {
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, prompt }) => {
   if (!videoUrl) return null;
 
-  const finalVideoUrl = videoUrl.startsWith("http") ? videoUrl : getVideoUrl(videoUrl);
-  console.log('Video URL:', finalVideoUrl);
+  const finalVideoUrl = getVideoUrl(videoUrl);
 
   if (!finalVideoUrl) {
     return (

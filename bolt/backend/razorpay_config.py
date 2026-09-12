@@ -1,43 +1,51 @@
-import os
+"""Razorpay client and subscription plan catalogue.
+
+Importing this module never raises: if credentials are absent the client is
+``None`` and ``RAZORPAY_ENABLED`` is ``False`` so the rest of the app can run
+(useful in dev and in CI).
+"""
+
+import logging
+from typing import Optional
+
 import razorpay
 
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+import config
 
-# Validate Razorpay credentials
-if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
-    raise ValueError("Razorpay credentials not found in environment variables")
+logger = logging.getLogger(__name__)
 
-print(f"Initializing Razorpay with Key ID: {RAZORPAY_KEY_ID[:5]}...")
-
-razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-
-# Define your plans and prices (in paise, so 10000 = ₹100)
+# Amounts are in paise (100 paise = ₹1).
 SUBSCRIPTION_PLANS = {
     "free": {"amount": 0, "features": ["5 generations per day", "Basic templates", "720p video quality"]},
-    "plus": {"amount": 50000, "features": ["25 generations per day", "All templates", "4K video quality", "Priority support"]},
-    "pro": {"amount": 120000, "features": ["60 generations per day", "All templates", "4K video quality", "Priority support", "Early access to new features"]},
+    "plus": {
+        "amount": 50000,
+        "features": ["25 generations per day", "All templates", "1080p video quality", "Priority support"],
+    },
+    "pro": {
+        "amount": 120000,
+        "features": [
+            "60 generations per day",
+            "All templates",
+            "4K video quality",
+            "Priority support",
+            "Early access to new features",
+        ],
+    },
 }
 
-# Define subscription periods (in seconds)
-SUBSCRIPTION_PERIOD = 30 * 24 * 60 * 60  # 30 days in seconds
-
-# Define subscription plan IDs in Razorpay
 SUBSCRIPTION_PLAN_IDS = {
     "plus": "plan_Qeg2oZBPF9IODB",
     "pro": "plan_Qeg30w1HgpMhhZ",
 }
 
-print(f"Debug: Initialized SUBSCRIPTION_PLAN_IDS: {SUBSCRIPTION_PLAN_IDS}")
+SUBSCRIPTION_PERIOD_SECONDS = 30 * 24 * 60 * 60
 
-# Validate plan IDs
-DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
+razorpay_client: Optional[razorpay.Client] = None
+RAZORPAY_ENABLED = False
 
-try:
-    for plan_id in SUBSCRIPTION_PLAN_IDS.values():
-        plan = razorpay_client.plan.fetch(plan_id)
-        print(f"Successfully validated plan ID: {plan_id}")
-except Exception as e:
-    print(f"Error validating Razorpay plan IDs: {str(e)}")
-    if not DEV_MODE:
-        raise ValueError(f"Invalid Razorpay plan ID: {str(e)}")
+if config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_SECRET:
+    razorpay_client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
+    RAZORPAY_ENABLED = True
+    logger.info("Razorpay enabled (key id %s...)", config.RAZORPAY_KEY_ID[:5])
+else:
+    logger.warning("Razorpay credentials missing; billing endpoints are disabled.")

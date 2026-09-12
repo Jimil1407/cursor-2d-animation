@@ -1,15 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { CreditCard, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import BackButton from '../components/BackButton';
-import { getAuth } from 'firebase/auth';
 import { useSearchParams } from 'react-router-dom';
 import { cancelSubscription, createRazorpayOrder } from '../services/api';
-import toast from 'react-hot-toast';
-import { auth } from '../services/firebase';
-import api from '../services/api';
 import { PaymentResultModal } from '../components/PaymentResultModal';
-import { useAuth } from '../context/AuthContext';
 import { useUsageStats } from '../hooks/useUsageStats';
 import { DowngradeConfirmationModal } from '../components/DowngradeConfirmationModal';
 
@@ -20,7 +15,6 @@ const BillingPage: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalSuccess, setModalSuccess] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
-  const { user } = useAuth();
   const { refetch, stats } = useUsageStats();
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
@@ -99,7 +93,6 @@ const BillingPage: React.FC = () => {
   const handleSubscribe = async (plan: string) => {
     try {
       setLoadingPlan(plan);
-      const user = auth.currentUser;
       if (plan === 'free') {
         // Cancel subscription if exists
         try {
@@ -107,7 +100,7 @@ const BillingPage: React.FC = () => {
           setModalSuccess(true);
           setModalMessage('You have been downgraded to the Free plan.');
           setModalOpen(true);
-        } catch (error) {
+        } catch {
           setModalSuccess(false);
           setModalMessage('Error cancelling subscription. Please try again.');
           setModalOpen(true);
@@ -117,35 +110,26 @@ const BillingPage: React.FC = () => {
       }
 
       const data = await createRazorpayOrder(plan);
-      const options = {
+      const rzp = new window.Razorpay({
         key: data.key_id,
         subscription_id: data.subscription_id,
         name: 'PromptMotion',
         description: `Subscribe to ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
-        handler: async function (response: any) {
-          setLoadingPlan(plan);
-          try {
-            setModalSuccess(true);
-            setModalMessage('Subscription activated! Enjoy your new plan.');
-            setModalOpen(true);
-          } catch (err) {
-            setModalSuccess(false);
-            setModalMessage('Subscription activation failed. Please contact support.');
-            setModalOpen(true);
-          } finally {
-            setLoadingPlan(null);
-          }
+        // Entitlement is granted by the Razorpay webhook on the backend, not here;
+        // this callback only drives the UI.
+        handler: async () => {
+          setModalSuccess(true);
+          setModalMessage('Payment received. Your new plan activates within a few moments.');
+          setModalOpen(true);
+          setLoadingPlan(null);
         },
-        prefill: {},
         theme: { color: '#7c3aed' },
         modal: {
           ondismiss: () => setLoadingPlan(null),
         },
-      };
-      // @ts-ignore
-      const rzp = new window.Razorpay(options);
+      });
       rzp.open();
-    } catch (error) {
+    } catch {
       setModalSuccess(false);
       setModalMessage('Error creating subscription. Please try again.');
       setModalOpen(true);

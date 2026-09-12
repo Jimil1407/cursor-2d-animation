@@ -1,17 +1,17 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "promptmotion-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.4",
-    "@libsql/client": "^0.15.7",
     "axios": "^1.6.7",
     "firebase": "^11.8.1",
     "framer-motion": "^10.18.0",

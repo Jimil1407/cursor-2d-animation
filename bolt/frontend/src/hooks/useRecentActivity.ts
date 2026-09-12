@@ -10,6 +10,13 @@ interface Activity {
   status: string;
 }
 
+interface CodeRecord {
+  title?: string;
+  timestamp?: string;
+  render_time?: string;
+  status?: string;
+}
+
 export const useRecentActivity = () => {
   const { user } = useAuth();
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -31,13 +38,15 @@ export const useRecentActivity = () => {
         const data = snapshot.val();
         if (data) {
           // Convert object to array and sort by date
-          const activityList: Activity[] = Object.entries(data).map(([id, code]: [string, any]) => ({
-            id,
-            name: code.title || 'Untitled',
-            date: code.timestamp || '',
-            duration: code.render_time || '0',
-            status: code.status || 'completed'
-          }));
+          const activityList: Activity[] = Object.entries(data as Record<string, CodeRecord>).map(
+            ([id, code]) => ({
+              id,
+              name: code.title || 'Untitled',
+              date: code.timestamp || '',
+              duration: code.render_time || '0',
+              status: code.status || 'completed'
+            })
+          );
 
           // Sort by date descending
           activityList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

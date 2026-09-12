@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Toaster } from 'react-hot-toast';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
-import { generateAnimation, getCode, fetchMyCodes } from '../services/api';
+import { generateAnimation, fetchMyCodes } from '../services/api';
 import { GenerationResponse, HistoryItem, Status } from '../types';
 import PromptForm from '../components/PromptForm';
 import VideoPlayer from '../components/VideoPlayer';
@@ -49,62 +49,75 @@ const FunHomeSubheadline = () => (
   </motion.p>
 );
 
-// Subtle sparkling background effect
-const SparkleBackground = () => {
-  const sparkles = Array.from({ length: 100 }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: Math.random() * 5 + 3,
-    delay: Math.random() * 2,
-  }));
+const SPARKLE_COUNT = 40;
 
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {sparkles.map((sparkle) => (
-        <motion.div
-          key={sparkle.id}
-          initial={{ opacity: 0, scale: 0 }}
-          animate={{ opacity: [0, 0.8, 0], scale: [0, 1, 0] }}
-          transition={{ duration: 2, repeat: Infinity, delay: sparkle.delay }}
-          style={{
-            position: 'absolute',
-            left: `${sparkle.x}%`,
-            top: `${sparkle.y}%`,
-            width: sparkle.size,
-            height: sparkle.size,
-            backgroundColor: 'rgba(255, 255, 255, 0.5)',
-            clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)',
-          }}
-        />
-      ))}
-    </div>
-  );
-};
+const FOOTER_LINKS = [
+  { to: '/about', label: 'About' },
+  { to: '/contact', label: 'Contact' },
+  { to: '/privacy', label: 'Privacy Policy' },
+  { to: '/terms', label: 'Terms of Service' },
+];
+
+// Re-rendering a scene reuses its URL, so a cache buster is needed to make the
+// <video> element refetch. Appends correctly whether or not a query exists.
+const withCacheBuster = (url: string) =>
+  url ? `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}` : '';
+
+// Subtle sparkling background effect. Memoised at module scope and rendered by a
+// memo component: the positions used to be re-randomised on every parent render,
+// which restarted 100 infinite animations each time.
+const SPARKLES = Array.from({ length: SPARKLE_COUNT }, (_, i) => ({
+  id: i,
+  x: Math.random() * 100,
+  y: Math.random() * 100,
+  size: Math.random() * 5 + 3,
+  delay: Math.random() * 2,
+}));
+
+const SparkleBackground = React.memo(() => (
+  <div className="absolute inset-0 overflow-hidden pointer-events-none">
+    {SPARKLES.map((sparkle) => (
+      <motion.div
+        key={sparkle.id}
+        initial={{ opacity: 0, scale: 0 }}
+        animate={{ opacity: [0, 0.8, 0], scale: [0, 1, 0] }}
+        transition={{ duration: 2, repeat: Infinity, delay: sparkle.delay }}
+        style={{
+          position: 'absolute',
+          left: `${sparkle.x}%`,
+          top: `${sparkle.y}%`,
+          width: sparkle.size,
+          height: sparkle.size,
+          backgroundColor: 'rgba(255, 255, 255, 0.5)',
+          clipPath:
+            'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)',
+        }}
+      />
+    ))}
+  </div>
+));
+SparkleBackground.displayName = 'SparkleBackground';
 
 const HomePage: React.FC = () => {
   const [prompt, setPrompt] = useState<string | null>(null);
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [sceneFileId, setSceneFileId] = useState<string | null>(null);
-  const [code, setCode] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [currentId, setCurrentId] = useState<string | null>(null);
   const [showUpgradePopup, setShowUpgradePopup] = useState(false);
   const [limitInfo, setLimitInfo] = useState<{ limit: number; account_type: string } | null>(null);
   const { user, loading } = useAuth();
 
-  useEffect(() => {
-    if (!loading && user) {
-      fetchMyCodes().then(setHistory);
-    }
-  }, [loading, user]);
+  const refreshHistory = useCallback(() => {
+    fetchMyCodes()
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  }, []);
 
-  const getCacheBustedUrl = (url: string) => {
-    if (!url) return '';
-    return url + '?v=' + Math.random().toString(36).substring(2);
-  };
+  useEffect(() => {
+    if (!loading && user) refreshHistory();
+  }, [loading, user, refreshHistory]);
 
   const handleGenerateAnimation = async (promptText: string) => {
     setStatus('loading');
@@ -113,61 +126,46 @@ const HomePage: React.FC = () => {
 
     try {
       const response: GenerationResponse = await generateAnimation(promptText);
-      if (response.video_url) {
-        setVideoPath(getCacheBustedUrl(response.video_url));
-      }
-      setSceneFileId(response.scene_file_id !== undefined ? response.scene_file_id : null);
-      setCurrentId(response.scene_file_id !== undefined ? response.scene_file_id : null);
-
-      const codeText = await getCode(response.scene_file_id);
-      setCode(codeText);
-
-      // Refetch history after new animation
-      fetchMyCodes().then(setHistory);
+      setVideoPath(withCacheBuster(response.video_url));
+      // CodeEditor fetches the source for this id itself; doing it here too was
+      // a wasted round trip.
+      setSceneFileId(response.scene_file_id ?? null);
+      refreshHistory();
       setStatus('success');
-    } catch (err: any) {
-      console.error('Error:', err);
-      // Check both top-level and .detail for LIMIT_REACHED
-      const code = err.response?.data?.code || err.response?.data?.detail?.code;
-      const limit = err.response?.data?.limit || err.response?.data?.detail?.limit;
-      const accountType = err.response?.data?.account_type || err.response?.data?.detail?.account_type;
-      if (code === 'LIMIT_REACHED') {
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: Record<string, unknown> } }).response?.data ?? {};
+      const detail = (data.detail ?? data) as Record<string, unknown>;
+
+      if (detail.code === 'LIMIT_REACHED') {
         setLimitInfo({
-          limit: limit,
-          account_type: accountType
+          limit: Number(detail.limit ?? 0),
+          account_type: String(detail.account_type ?? 'free'),
         });
         setShowUpgradePopup(true);
       } else {
-        setError('Failed to generate animation. Please try again.');
+        setError(
+          typeof detail.message === 'string'
+            ? detail.message
+            : 'Failed to generate animation. Please try again.'
+        );
       }
       setStatus('error');
     }
   };
 
-  const handleSelectHistoryItem = async (item: HistoryItem) => {
-    setPrompt(item.prompt ?? null);
-    setVideoPath(getCacheBustedUrl(item.video_url));
+  const handleSelectHistoryItem = (item: HistoryItem) => {
+    setPrompt(item.title ?? null);
+    setVideoPath(withCacheBuster(item.video_url));
     setSceneFileId(item.scene_file_id);
-    setCurrentId(item.scene_file_id);
-
-    try {
-      const codeText = await getCode(item.scene_file_id);
-      setCode(codeText);
-    } catch (err) {
-      console.error('Error fetching code for history item:', err);
-      setError('Failed to load code for this animation.');
-    }
   };
 
-  // Update video after code update, but do not refetch history
   const handleUpdateVideo = (videoUrl: string) => {
-    setVideoPath(getCacheBustedUrl(videoUrl));
+    setVideoPath(withCacheBuster(videoUrl));
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-black dark:to-black text-gray-900 dark:text-gray-100 transition-colors duration-200 relative">
       <SparkleBackground />
-      <Toaster position="top-right" />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col md:flex-row gap-8">
           <div className="w-full md:w-3/4">
@@ -202,8 +200,7 @@ const HomePage: React.FC = () => {
             <HistoryPanel
               history={history}
               onSelect={handleSelectHistoryItem}
-              currentId={currentId}
-              onClose={() => {}}
+              currentId={sceneFileId}
             />
           </div>
         </div>
@@ -215,10 +212,15 @@ const HomePage: React.FC = () => {
             <p>Built by <a href="https://github.com/Jimil1407" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">Jimil Digaswala</a>.</p>
           </div>
           <div className="flex space-x-4">
-            <a href="/about" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">About</a>
-            <a href="/contact" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Contact</a>
-            <a href="/privacy" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Privacy Policy</a>
-            <a href="/terms" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">Terms of Service</a>
+            {FOOTER_LINKS.map(({ to, label }) => (
+              <Link
+                key={to}
+                to={to}
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+              >
+                {label}
+              </Link>
+            ))}
           </div>
         </div>
       </footer>

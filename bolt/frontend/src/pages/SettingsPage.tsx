@@ -1,28 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Bell, Lock, Globe, Moon, Sun, ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { Lock, Globe, Moon, Sun, ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import BackButton from '../components/BackButton';
-import { getDatabase, ref, onValue, remove, set, update } from 'firebase/database';
+import { getDatabase, ref, onValue, remove, set } from 'firebase/database';
 import { useAuth } from '../context/AuthContext';
+import { useUsageStats } from '../hooks/useUsageStats';
 import { getAuth, deleteUser, updatePassword, signOut } from 'firebase/auth';
-
-const useUsageStats = (): any => {
-  const { user } = useAuth();
-  const [stats, setStats] = useState<any>(null);
-
-  useEffect(() => {
-    if (!user) return;
-    const db = getDatabase();
-    const statsRef = ref(db, `usage_stats/${user.uid}`);
-    const unsubscribe = onValue(statsRef, (snapshot) => {
-      setStats(snapshot.val());
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  return stats;
-};
 
 // For device info
 const getDeviceInfo = () => {
@@ -32,9 +16,12 @@ const getDeviceInfo = () => {
   else if (ua.includes('Firefox')) browser = 'Firefox';
   else if (ua.includes('Safari')) browser = 'Safari';
   else if (ua.includes('Edge')) browser = 'Edge';
-  let platform = navigator.platform || 'Unknown';
+  const platform = navigator.platform || 'Unknown';
   return { browser, platform };
 };
+
+const errorMessage = (err: unknown, fallback: string) =>
+  err instanceof Error ? err.message : fallback;
 
 const SettingsPage: React.FC = () => {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -51,9 +38,10 @@ const SettingsPage: React.FC = () => {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const stats = useUsageStats();
+  const { stats } = useUsageStats();
   const accountType = stats?.account_type || 'free';
   const [defaultQuality, setDefaultQuality] = useState('720p');
+
   const [qualitySuccess, setQualitySuccess] = useState('');
   const [qualityError, setQualityError] = useState('');
   const [qualityLoading, setQualityLoading] = useState(false);
@@ -81,8 +69,8 @@ const SettingsPage: React.FC = () => {
       const codesRef = ref(db, `users/${user.uid}/codes`);
       await remove(codesRef);
       setDeleteSuccess(true);
-    } catch (err: any) {
-      setDeleteError(err.message || 'Failed to delete chats.');
+    } catch (err) {
+      setDeleteError(errorMessage(err, 'Failed to delete chats.'));
     } finally {
       setDeleting(false);
       setShowConfirm(false);
@@ -107,8 +95,8 @@ const SettingsPage: React.FC = () => {
       } else {
         throw new Error('No authenticated user found.');
       }
-    } catch (err: any) {
-      setDeleteAccountError(err.message || 'Failed to delete account.');
+    } catch (err) {
+      setDeleteAccountError(errorMessage(err, 'Failed to delete account.'));
     } finally {
       setDeletingAccount(false);
       setShowDeleteAccount(false);
@@ -212,8 +200,8 @@ const SettingsPage: React.FC = () => {
                   const qualityRef = ref(db, `users/${user.uid}/settings/defaultQuality`);
                   await set(qualityRef, defaultQuality);
                   setQualitySuccess('Default quality updated!');
-                } catch (err: any) {
-                  setQualityError(err.message || 'Failed to update quality.');
+                } catch (err) {
+                  setQualityError(errorMessage(err, 'Failed to update quality.'));
                 } finally {
                   setQualityLoading(false);
                 }
@@ -284,8 +272,8 @@ const SettingsPage: React.FC = () => {
                   } else {
                     setPasswordError('No authenticated user found.');
                   }
-                } catch (err: any) {
-                  setPasswordError(err.message || 'Failed to update password.');
+                } catch (err) {
+                  setPasswordError(errorMessage(err, 'Failed to update password.'));
                 } finally {
                   setPasswordLoading(false);
                 }

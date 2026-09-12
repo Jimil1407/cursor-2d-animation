@@ -1,72 +1,85 @@
-import os
+"""Gemini-backed generation of Manim scene code."""
+
+import logging
+import re
+import time
+from typing import Optional
+
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+import config
+from code_validator import UnsafeCodeError, validate_scene_code
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+logger = logging.getLogger(__name__)
+
+GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+SYSTEM_PROMPT = (
+    "You are a Python expert specialised in Manim Community Edition 2D animations.\n"
+    "Given a description, return one complete, well-paced Scene subclass.\n"
+    "Rules:\n"
+    "- Output ONLY Python code. No prose, no comments, no markdown fences.\n"
+    "- Start with `from manim import *`.\n"
+    "- Import nothing besides manim, numpy and standard-library maths modules.\n"
+    "- Never use file, network, subprocess or os APIs.\n"
+    "- Target a 6-10 second runtime using Create, Transform, Write, FadeIn, etc."
+)
+
+_FENCE_RE = re.compile(r"^\s*```(?:python|py)?\s*\n(?P<body>.*?)\n?\s*```\s*$", re.DOTALL)
+
+# Reused across requests so TLS handshakes and sockets are pooled.
+_session = requests.Session()
+
+
+def _strip_code_fences(text: str) -> str:
+    match = _FENCE_RE.match(text.strip())
+    return match.group("body").strip() if match else text.strip()
+
+
+def _extract_text(payload: dict) -> str:
+    try:
+        parts = payload["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError) as exc:
+        raise ValueError("Unexpected Gemini response shape.") from exc
+    return "".join(part.get("text", "") for part in parts)
+
 
 def generate_manim_code(prompt: str) -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-    
-    headers = {
-        "Content-Type": "application/json"
+    """Turn a natural-language prompt into validated Manim scene code.
+
+    Blocking; call it from a worker thread, never directly on the event loop.
+    """
+    if not config.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+
+    url = GEMINI_ENDPOINT.format(model=config.GEMINI_MODEL)
+    body = {
+        "contents": [{"parts": [{"text": f"{SYSTEM_PROMPT}\n\n{prompt.strip()}"}]}],
+        "generationConfig": {"temperature": 0.4},
     }
 
-    # Broader system prompt for diverse 2D animation
-    system_prompt = (
-        "You are a Python expert specialized in using the Manim Community Edition to create 2D animations. "
-        "Given a user's description of a 2D animation, return a complete, well-paced Scene class. "
-        "You can use any Manim objects like shapes, text, formulas, number lines, graphs, etc. "
-        "Ensure clarity, pacing (~6–10 seconds), and appropriate use of animations like Create, Transform, Write, FadeIn, etc."
-        "generate only the Python code needed to create the animation using Manim. "
-        "Do not include explanations, comments, markdown formatting, or any extra text. "
-        "Return only the valid code."
+    last_error: Optional[Exception] = None
+    for attempt in range(config.LLM_MAX_RETRIES + 1):
+        try:
+            response = _session.post(
+                url,
+                params={"key": config.GEMINI_API_KEY},
+                json=body,
+                timeout=config.LLM_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            code = _strip_code_fences(_extract_text(response.json()))
+            validate_scene_code(code)
+            if "Scene" not in code:
+                raise ValueError("Generated code contains no Manim Scene class.")
+            return code
+        except (requests.RequestException, ValueError, UnsafeCodeError) as exc:
+            last_error = exc
+            if attempt < config.LLM_MAX_RETRIES:
+                backoff = 2**attempt
+                logger.warning("Gemini attempt %s failed (%s); retrying in %ss", attempt + 1, exc, backoff)
+                time.sleep(backoff)
 
+    raise RuntimeError(
+        f"Failed to generate Manim code after {config.LLM_MAX_RETRIES + 1} attempts: {last_error}"
     )
-
-    enriched_prompt = (
-        f"{prompt}\n\nMake sure the animation is visually clear, expressive, and timed well."
-    )
-
-    full_prompt = system_prompt + "\n\n" + enriched_prompt
-
-    data = {
-        "contents": [
-            {
-                "parts": [
-                    {
-                        "text": full_prompt
-                    }
-                ]
-            }
-        ]
-    }
-    
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-    res_json = response.json()
-
-    # Debug print if needed
-    #print("Full response JSON:", res_json)
-
-    try:
-        generated_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError) as e:
-        raise ValueError("Failed to parse Gemini response.") from e
-
-    # Strip code fences
-    if generated_text.startswith("```python"):
-        generated_text = generated_text.removeprefix("```python").strip()
-    elif generated_text.startswith("```"):
-        generated_text = generated_text.removeprefix("```").strip()
-
-    if generated_text.endswith("```"):
-        generated_text = generated_text[:-3].strip()
-
-    # Optional: Validate that it contains a Scene class
-    if "class" not in generated_text or "Scene" not in generated_text:
-        raise ValueError("The response does not contain a valid Manim Scene class.")
-
-    #print("Generated Manim code:\n", generated_text)
-    return generated_text

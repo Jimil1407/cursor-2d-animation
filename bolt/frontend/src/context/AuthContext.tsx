@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { 
   User,
   signInWithEmailAndPassword,
@@ -37,12 +37,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return unsubscribe;
   }, []);
 
   // Inside your AuthContext
@@ -65,27 +65,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error('Error signing out:', error);
-      throw error;
-    }
+    await signOut(auth);
   };
 
-  return (
-    <AuthContext.Provider value={{
-      user,
-      loading,
-      signUpWithEmail,
-      signInWithEmail,
-      signInWithGoogle,
-      signInWithGithub,
-      logout
-    }}>
-      {!loading && children}
-    </AuthContext.Provider>
+  // Memoised so consumers do not re-render on every provider render.
+  const value = useMemo(
+    () => ({ user, loading, signUpWithEmail, signInWithEmail, signInWithGoogle, signInWithGithub, logout }),
+    [user, loading]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);

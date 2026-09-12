@@ -1,20 +1,44 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
+
     "users": {
       "$uid": {
         ".read": "$uid === auth.uid",
-        ".write": "$uid === auth.uid",
-        "animations": {
-          ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid && !newData.exists()",
+
+        "settings": {
           ".write": "$uid === auth.uid"
-        }
+        },
+
+        "codes": {
+          ".write": "$uid === auth.uid && !newData.exists()",
+          "$fileId": {
+            ".write": "$uid === auth.uid && !newData.exists()"
+          }
+        },
+
+        "accountType": { ".write": false },
+        "subscription": { ".write": false },
+        "dailyUsage": { ".write": false }
       }
     },
+
     "usage_stats": {
       "$uid": {
         ".read": "$uid === auth.uid",
-        ".write": "$uid === auth.uid"
+        ".write": false
+      }
+    },
+
+    "metrics": {
+      "renders": {
+        "$uid": {
+          ".read": "$uid === auth.uid",
+          ".write": false
+        }
       }
     }
   }
-} 
+}

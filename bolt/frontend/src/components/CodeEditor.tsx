@@ -1,13 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css';
 import { Save, Loader2, AlertCircle } from 'lucide-react';
-import { auth } from '../services/firebase';
 import { getCode, updateCode } from '../services/api';
-//import toast from 'react-hot-toast';
 
 type Props = {
   sceneFileId: string | null;
@@ -15,7 +13,7 @@ type Props = {
 };
 
 export default function CodeEditor({ sceneFileId, onUpdateVideo }: Props) {
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,44 +21,51 @@ export default function CodeEditor({ sceneFileId, onUpdateVideo }: Props) {
 
   useEffect(() => {
     if (!sceneFileId) return;
-    
-    const fetchCode = async () => {
+
+    // Guards against a slow response for a previous scene overwriting a newer one.
+    let cancelled = false;
+
+    (async () => {
       try {
         setLoading(true);
         setError(null);
-        const code = await getCode(sceneFileId);
-        console.log('Fetched code:', code);
-        setCode(code);
+        setIsEditing(false);
+        const fetched = await getCode(sceneFileId);
+        if (!cancelled) setCode(fetched);
       } catch (err) {
-        setError("Failed to load code. Please try again.");
-        console.error("Error fetching code:", err);
+        if (!cancelled) setError('Failed to load code. Please try again.');
+        console.error('Error fetching code:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    };
+    })();
 
-    fetchCode();
+    return () => {
+      cancelled = true;
+    };
   }, [sceneFileId]);
+
   if (!sceneFileId) return null;
-  
+
   const handleSave = async () => {
     try {
       setSaving(true);
       setError(null);
-      console.log("Saving code:", code);
-      await updateCode(sceneFileId, code);
-      // The video URL will be updated through the API response
-      onUpdateVideo(code);  // This will trigger a re-render of the video
-
-    } catch (err) {
-      setError("Failed to save changes. Please try again.");
-      console.error("Error saving code:", err);
+      const result = await updateCode(sceneFileId, code);
+      // Hand back the freshly rendered video URL — passing `code` here meant the
+      // player was being given Python source instead of a URL.
+      onUpdateVideo(result.video_url);
+      setIsEditing(false);
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        'Failed to save changes. Please try again.';
+      setError(detail);
+      console.error('Error saving code:', err);
     } finally {
       setSaving(false);
     }
   };
-
-  //if (!sceneFileId) return null;
 
   return (
     <motion.div

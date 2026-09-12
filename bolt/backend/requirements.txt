@@ -1,11 +1,9 @@
-fastapi
-uvicorn
-manim
-python-dotenv
-requests
-dotenv
-pydantic
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+manim>=0.18,<1.0
+python-dotenv>=1.0,<2.0
+requests>=2.31,<3.0
+pydantic>=2.6,<3.0
 firebase-admin==6.8.0
-python-jose[cryptography]
-razorpay
+razorpay>=1.4,<2.0
 

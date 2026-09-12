@@ -1,171 +1,201 @@
-import os
+"""Render Manim scene code to an MP4 and publish it.
+
+``save_and_render`` is synchronous and CPU/IO heavy — always invoke it from a
+worker thread (``fastapi.concurrency.run_in_threadpool``) so it cannot stall the
+event loop.
+"""
+
+import logging
+import re
+import shutil
 import subprocess
 import uuid
-from firebase_admin import storage, db
-from datetime import datetime
-from firebase_config import firebase_app
-import shutil
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
-OUTPUT_DIR = "Video_codes"
+from firebase_admin import db, storage
 
-def save_and_render(code: str, uid: str, prompt: str = "", file_id: str = None):
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    if file_id is None:
-        file_id = str(uuid.uuid4())[:8]
-    file_path = f"{OUTPUT_DIR}/scene_{file_id}.py"
-    video_folder = f"media/videos/scene_{file_id}/2160p60"
+import config
+from code_validator import validate_scene_code
+from firebase_config import firebase_app  # noqa: F401  (ensures the SDK is initialised)
 
-    # Save code to file before running manim
-    with open(file_path, "w") as f:
-        f.write(code)
+logger = logging.getLogger(__name__)
 
-    code_ref = db.reference(f'users/{uid}/codes/{file_id}')
-    existing = code_ref.get()
+# Matches e.g. ``class MyScene(Scene):`` or ``class G(MovingCameraScene):``.
+_SCENE_CLASS_RE = re.compile(r"^class\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*:", re.MULTILINE)
 
-    if existing:
-        # Preserve original title and timestamp
-        title = existing.get('title', "Untitled")
-        timestamp = existing.get('timestamp', datetime.now().isoformat())
-    else:
-        title = " ".join(prompt.strip().split()[:3]) or "Untitled"
-        timestamp = datetime.now().isoformat()
 
-    # Store or update code in Firebase Realtime Database under user
-    code_ref.set({
-        'code': code,
-        'timestamp': timestamp,
-        'status': 'processing',
-        'title': title
-    })
+@dataclass
+class RenderResult:
+    file_id: str
+    video_url: str
+    success: bool
+    duration_ms: int
+    error: Optional[str] = None
 
-    # Run manim render first
-    start_time = datetime.now()
-    render_success = False
-    render_error: Optional[str] = None
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def detect_scene_class(code: str) -> str:
+    """Return the name of the first Manim Scene subclass defined in *code*.
+
+    The renderer used to hard-code ``MorphScene``, so every generated scene with
+    a different class name failed to render.
+    """
+    for name, bases in _SCENE_CLASS_RE.findall(code):
+        if "Scene" in bases:
+            return name
+    raise ValueError("No Manim Scene subclass found in the supplied code.")
+
+
+def _quality_flag(tier: str) -> str:
+    return config.QUALITY_BY_TIER.get(tier, config.DEFAULT_QUALITY_FLAG)
+
+
+def _record_metrics(uid: str, file_id: str, duration_ms: int, success: bool, error: Optional[str], label: str) -> None:
     try:
-        result = subprocess.run(
-            ["manim", file_path, "MorphScene", "-qk"],
+        now = _utc_now()
+        db.reference(f"metrics/renders/{uid}/{now.strftime('%Y-%m-%d')}/{file_id}").set(
+            {
+                "file_id": file_id,
+                "timestamp": now.isoformat(),
+                "duration_ms": duration_ms,
+                "success": success,
+                "error": (error or "")[:2000] or None,
+                "prompt_preview": label[:120],
+            }
+        )
+    except Exception:
+        logger.warning("Failed to record render metrics for %s", file_id, exc_info=True)
+
+
+def _record_totals(uid: str, render_minutes: float) -> None:
+    """Accumulate lifetime render totals.
+
+    ``remainingAnimations`` is deliberately not touched here: it is derived from
+    the daily-usage counter in ``main.py`` so there is a single source of truth.
+    """
+    try:
+        stats_ref = db.reference(f"usage_stats/{uid}")
+        stats = stats_ref.get() or {}
+        total = (stats.get("totalAnimations") or 0) + 1
+        total_time = (stats.get("totalRenderTime") or 0) + render_minutes
+        stats_ref.update(
+            {
+                "totalAnimations": total,
+                "totalRenderTime": total_time,
+                "averageRenderTime": total_time / total,
+                "lastUpdated": _utc_now().isoformat(),
+            }
+        )
+    except Exception:
+        logger.warning("Failed to update usage totals for %s", uid, exc_info=True)
+
+
+def _publish(video_path: Path, uid: str, file_id: str) -> str:
+    if config.DEV_MODE:
+        return "/media/" + video_path.relative_to(config.MEDIA_DIR).as_posix()
+
+    blob = storage.bucket().blob(f"videos/{uid}/{file_id}/{video_path.name}")
+    blob.upload_from_filename(str(video_path), content_type="video/mp4")
+    blob.make_public()
+    return blob.public_url
+
+
+def _cleanup(scene_output_dir: Path, scene_file: Path) -> None:
+    # Keep artefacts locally in dev so they can be inspected and served.
+    if config.DEV_MODE:
+        return
+    shutil.rmtree(scene_output_dir, ignore_errors=True)
+    scene_file.unlink(missing_ok=True)
+
+
+def save_and_render(
+    code: str,
+    uid: str,
+    prompt: str = "",
+    file_id: Optional[str] = None,
+    tier: str = config.DEFAULT_TIER,
+) -> RenderResult:
+    validate_scene_code(code)
+    scene_class = detect_scene_class(code)
+
+    file_id = file_id or uuid.uuid4().hex[:8]
+    config.SCENE_DIR.mkdir(parents=True, exist_ok=True)
+    scene_file = config.SCENE_DIR / f"scene_{file_id}.py"
+    scene_file.write_text(code, encoding="utf-8")
+
+    code_ref = db.reference(f"users/{uid}/codes/{file_id}")
+    existing = code_ref.get() or {}
+    title = existing.get("title") or " ".join(prompt.strip().split()[:3]) or "Untitled"
+    timestamp = existing.get("timestamp") or _utc_now().isoformat()
+    label = prompt or title
+
+    # ``update`` rather than ``set`` so a re-render does not wipe prior fields.
+    code_ref.update({"code": code, "timestamp": timestamp, "status": "processing", "title": title})
+
+    started = _utc_now()
+    try:
+        subprocess.run(
+            [
+                "manim",
+                "render",
+                str(scene_file),
+                scene_class,
+                _quality_flag(tier),
+                "--format",
+                "mp4",
+                "--media_dir",
+                str(config.MEDIA_DIR),
+            ],
             check=True,
             capture_output=True,
             text=True,
+            timeout=config.RENDER_TIMEOUT_SECONDS,
         )
-        render_success = True
-    except subprocess.CalledProcessError as e:
-        print("❌ Manim render failed.")
-        print("STDOUT:", e.stdout)
-        print("STDERR:", e.stderr)
-        render_error = e.stderr
-        code_ref.update({'status': 'failed', 'error': e.stderr})
-        # Log render metrics on failure
-        try:
-            end_time_fail = datetime.now()
-            duration_ms_fail = int((end_time_fail - start_time).total_seconds() * 1000)
-            date_key_fail = datetime.now().strftime('%Y-%m-%d')
-            metrics_ref_fail = db.reference(f'metrics/renders/{uid}/{date_key_fail}/{file_id}')
-            metrics_ref_fail.set({
-                'file_id': file_id,
-                'uid': uid,
-                'timestamp': end_time_fail.isoformat(),
-                'duration_ms': duration_ms_fail,
-                'success': False,
-                'error': e.stderr[:4000] if e.stderr else 'Unknown error',
-                'prompt_preview': (prompt or title)[:120]
-            })
-        except Exception as metrics_err:
-            print(f"Warning: Failed to record render metrics (failure): {metrics_err}")
-        return {"video_url": f"Error during rendering: {e.stderr}", "file_id": file_id}
+    except subprocess.TimeoutExpired:
+        message = f"Render exceeded {config.RENDER_TIMEOUT_SECONDS}s and was aborted."
+        return _fail(code_ref, uid, file_id, started, message, label)
+    except subprocess.CalledProcessError as exc:
+        logger.error("Manim render failed for %s: %s", file_id, exc.stderr)
+        return _fail(code_ref, uid, file_id, started, exc.stderr or "Manim render failed.", label)
 
-    # After render, calculate render time
-    end_time = datetime.now()
-    render_time = (end_time - start_time).total_seconds() / 60  # in minutes (float)
-    duration_ms = int((end_time - start_time).total_seconds() * 1000)
+    duration_ms = int((_utc_now() - started).total_seconds() * 1000)
 
-    # Now check the folder for mp4 files
+    scene_output_dir = config.MEDIA_DIR / "videos" / f"scene_{file_id}"
+    renders = sorted(scene_output_dir.glob("**/*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not renders:
+        return _fail(code_ref, uid, file_id, started, "Render produced no MP4 output.", label)
+
     try:
-        print(video_folder)
-        files = os.listdir(video_folder)
-        print(files)
-        mp4_files = [f for f in files if f.endswith(".mp4")]
-        if not mp4_files:
-            print("⚠️ No .mp4 files found after rendering.")
-            code_ref.update({'status': 'failed', 'error': 'No MP4 files found'})
-            return {"video_url": "", "file_id": file_id}
-        
-        video_file = mp4_files[0]  # take first mp4 found
-        video_path = f"{video_folder}/{video_file}"
-        
-        # In dev mode, skip upload and serve local path; prod uses Firebase Storage
-        dev_mode = os.getenv('DEV_MODE', 'false').lower() == 'true'
-        if dev_mode:
-            video_url = f"/media/videos/scene_{file_id}/2160p60/{video_file}"
-        else:
-            bucket = storage.bucket()
-            blob = bucket.blob(f'videos/{uid}/{file_id}/{video_file}')
-            blob.upload_from_filename(video_path)
-            print(f"Uploaded video to Firebase Storage: {blob.name}")
-            blob.make_public()
-            print(f"Blob public URL: {blob.public_url}")
-            video_url = blob.public_url
-        
-        # Update status in database
-        code_ref.update({
-            'status': 'completed',
-            'video_url': video_url,
-            'render_time': render_time,
-            'title': title,
-            'timestamp': timestamp
-        })
+        video_url = _publish(renders[0], uid, file_id)
+    except Exception as exc:
+        logger.exception("Failed to publish render %s", file_id)
+        return _fail(code_ref, uid, file_id, started, f"Failed to publish video: {exc}", label)
 
-        # Record render metrics (success)
-        try:
-            date_key = datetime.now().strftime('%Y-%m-%d')
-            metrics_ref = db.reference(f'metrics/renders/{uid}/{date_key}/{file_id}')
-            metrics_ref.set({
-                'file_id': file_id,
-                'uid': uid,
-                'timestamp': end_time.isoformat(),
-                'duration_ms': duration_ms,
-                'success': True,
-                'error': None,
-                'prompt_preview': (prompt or title)[:120]
-            })
-        except Exception as metrics_err:
-            print(f"Warning: Failed to record render metrics: {metrics_err}")
-
-        # --- USAGE STATS UPDATE ---
-        usage_ref = db.reference(f'usage_stats/{uid}')
-        stats = usage_ref.get() or {
-            'totalAnimations': 0,
-            'remainingAnimations': 5,  # Default to free tier limit
-            'totalRenderTime': 0,
-            'averageRenderTime': 0,
-            'lastUpdated': datetime.now().isoformat(),
-            'account_type': 'free'
+    render_minutes = duration_ms / 60_000
+    code_ref.update(
+        {
+            "status": "completed",
+            "video_url": video_url,
+            "render_time": render_minutes,
+            "scene_class": scene_class,
+            "error": None,
         }
-        
-        # Update total stats
-        stats['totalAnimations'] = stats.get('totalAnimations', 0) + 1
-        stats['remainingAnimations'] = max(0, stats.get('remainingAnimations', 5) - 1)
-        stats['totalRenderTime'] = stats.get('totalRenderTime', 0) + render_time
-        stats['averageRenderTime'] = stats['totalRenderTime'] / stats['totalAnimations']
-        stats['lastUpdated'] = datetime.now().isoformat()
-        usage_ref.set(stats)
-        # --- END USAGE STATS UPDATE ---
+    )
+    _record_metrics(uid, file_id, duration_ms, True, None, label)
+    _record_totals(uid, render_minutes)
+    _cleanup(scene_output_dir, scene_file)
 
-        # Clean up local files (delete video file and its parent folder)
-        try:
-            # Keep local files in dev for manual inspection
-            if not dev_mode:
-                os.remove(video_path)
-                shutil.rmtree(video_folder)
-                os.remove(file_path)
-        except Exception as e:
-            print(f"Warning: Failed to clean up local files: {e}")
-        
-        return {"video_url": video_url, "file_id": file_id}
-        
-    except FileNotFoundError:
-        print("⚠️ Render folder not found.")
-        code_ref.update({'status': 'failed', 'error': 'Render folder not found'})
-        return {"video_url": "", "file_id": file_id}
+    return RenderResult(file_id=file_id, video_url=video_url, success=True, duration_ms=duration_ms)
+
+
+def _fail(code_ref, uid: str, file_id: str, started: datetime, error: str, label: str) -> RenderResult:
+    duration_ms = int((_utc_now() - started).total_seconds() * 1000)
+    code_ref.update({"status": "failed", "error": error[:2000]})
+    _record_metrics(uid, file_id, duration_ms, False, error, label)
+    return RenderResult(file_id=file_id, video_url="", success=False, duration_ms=duration_ms, error=error)

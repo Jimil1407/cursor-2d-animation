@@ -5,28 +5,14 @@ import BackButton from '../components/BackButton';
 import { useUsageStats } from '../hooks/useUsageStats';
 import { useRecentActivity } from '../hooks/useRecentActivity';
 
+const TIER_LIMITS: Record<string, number> = { free: 5, plus: 25, pro: 60 };
+
 const UsagePage: React.FC = () => {
   const { stats, loading: statsLoading, error: statsError } = useUsageStats();
   const { activities, loading: activitiesLoading, error: activitiesError } = useRecentActivity();
-  const [dailyLimit, setDailyLimit] = React.useState<number | null>(null);
-  const [accountType, setAccountType] = React.useState<string>('free');
 
-  React.useEffect(() => {
-    // Try to get the daily limit and account type from stats if available
-    if (stats && stats.account_type && stats.limit) {
-      setAccountType(stats.account_type);
-      setDailyLimit(stats.limit);
-    }
-  }, [stats]);
-
-  // Fallback: use account type to determine limit
-  React.useEffect(() => {
-    if (!dailyLimit && stats && stats.account_type) {
-      if (stats.account_type === 'free') setDailyLimit(5);
-      else if (stats.account_type === 'plus') setDailyLimit(25);
-      else if (stats.account_type === 'pro') setDailyLimit(60);
-    }
-  }, [stats, dailyLimit]);
+  // Derived rather than mirrored into state through effects.
+  const dailyLimit = stats?.limit ?? TIER_LIMITS[stats?.account_type ?? 'free'] ?? null;
 
   const formatTime = (minutes: number) => {
     const totalSeconds = Math.round((minutes || 0) * 60);

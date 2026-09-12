@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Loader2 } from 'lucide-react';
 import { Status } from '../types';
-import { Button } from './Button';
 
 interface PromptFormProps {
   onSubmit: (prompt: string) => Promise<void>;
@@ -12,13 +10,12 @@ interface PromptFormProps {
 const PromptForm: React.FC<PromptFormProps> = ({ onSubmit, status }) => {
   const [prompt, setPrompt] = useState('');
   const isLoading = status === 'loading';
-
-  console.log('Button disabled:', !prompt.trim() || isLoading, { prompt, isLoading });
+  const canSubmit = prompt.trim().length >= 3 && !isLoading;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (prompt.trim() && !isLoading) {
-      await onSubmit(prompt);
+    if (canSubmit) {
+      await onSubmit(prompt.trim());
     }
   };
 
@@ -44,10 +41,10 @@ const PromptForm: React.FC<PromptFormProps> = ({ onSubmit, status }) => {
           <div className="flex justify-end p-2 bg-gray-50/80 dark:bg-gray-700/80 rounded-b-lg">
             <button
               type="submit"
-              disabled={status === 'loading'}
-              className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-purple-800 to-gray-900 text-white hover:from-purple-700 hover:to-gray-800 transition-colors"
+              disabled={!canSubmit}
+              className="w-full py-2 px-4 rounded-lg bg-gradient-to-r from-purple-800 to-gray-900 text-white hover:from-purple-700 hover:to-gray-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {status === 'loading' ? 'Generating...' : 'Render Animation'}
+              {isLoading ? 'Generating...' : 'Render Animation'}
             </button>
           </div>
         </div>

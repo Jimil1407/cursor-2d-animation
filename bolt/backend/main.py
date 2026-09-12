@@ -1,615 +1,513 @@
 # backend/main.py
-from fastapi import FastAPI, Request, HTTPException, Depends
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-from llm_engine import generate_manim_code
-from manim_engine import save_and_render
-from fastapi.staticfiles import StaticFiles
-import re
-import os
-from firebase_admin import db, auth as firebase_auth, credentials
-import firebase_admin
-from datetime import datetime, timedelta
-from typing import Optional
-import razorpay
-try:
-    from razorpay_config import razorpay_client, SUBSCRIPTION_PLANS, SUBSCRIPTION_PLAN_IDS
-    RAZORPAY_ENABLED = True
-except Exception as _razorpay_err:
-    print(f"Razorpay disabled (dev mode): {_razorpay_err}")
-    razorpay_client = None
-    SUBSCRIPTION_PLANS = {
-        'free': {'amount': 0},
-        'plus': {'amount': 0},
-        'pro': {'amount': 0},
-    }
-    SUBSCRIPTION_PLAN_IDS = {}
-    RAZORPAY_ENABLED = False
-from dotenv import load_dotenv
-import hmac
+"""PromptMotion API."""
+
 import hashlib
+import hmac
 import json
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
-load_dotenv()
-DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from firebase_admin import auth as firebase_auth
+from firebase_admin import db
+from pydantic import BaseModel, Field
 
-# Initialize Firebase with Realtime Database (only once)
-if not firebase_admin._apps:
-    # Prefer local backend path in dev mode
-    cred_path = "serviceAccountKey.json"
-    if not os.path.exists(cred_path):
-        cred_path = "../serviceAccountKey.json"
-    cred = credentials.Certificate(cred_path)
-    firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://prompmotion-auth-default-rtdb.firebaseio.com/'
-    })
+import config
+from code_validator import UnsafeCodeError, validate_scene_code
+from firebase_config import firebase_app  # noqa: F401  (initialises the SDK)
+from llm_engine import generate_manim_code
+from manim_engine import RenderResult, save_and_render
+from razorpay_config import (
+    RAZORPAY_ENABLED,
+    SUBSCRIPTION_PLAN_IDS,
+    SUBSCRIPTION_PLANS,
+    razorpay_client,
+)
 
-class PromptInput(BaseModel):
-    prompt: str
+logging.basicConfig(level=config.LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("promptmotion")
 
-app = FastAPI()
-app.mount("/media", StaticFiles(directory="media"), name="media")
+DEV_USER_ID = "dev-user"
 
-# Add debugging middleware
-@app.middleware("http")
-async def debug_middleware(request: Request, call_next):
-    print(f"Request headers: {request.headers}")
-    response = await call_next(request)
-    print(f"Response headers: {response.headers}")
-    return response
+DEV_SCENE_CODE = """from manim import *
 
-# Configure CORS
-origins = [
-    "https://promptmotion.vercel.app",
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://localhost:5173",  # Add Vite development server
-    "http://127.0.0.1:5173"   # Add Vite development server alternative
-]
+class MorphScene(Scene):
+    def construct(self):
+        circle = Circle(color=BLUE).scale(1.2)
+        square = Square(color=GREEN).scale(1.2)
+        label = Text('PromptMotion', font_size=36)
+        self.play(Create(circle))
+        self.play(Transform(circle, square))
+        self.play(FadeIn(label.shift(DOWN * 2)))
+        self.wait(0.5)
+"""
+
+app = FastAPI(title="PromptMotion API", version="1.0.0")
+
+config.MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(config.MEDIA_DIR)), name="media")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=config.CORS_ORIGINS,
+    # Safe because origins are an explicit allowlist, never "*". Kept enabled so
+    # already-deployed clients that send withCredentials keep working.
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-def get_current_user(request: Request):
-    if DEV_MODE:
-        return 'dev-user'
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        raise HTTPException(status_code=401, detail="Missing or invalid auth header")
-    id_token = auth_header.split(' ')[1]
-    try:
-        decoded_token = firebase_auth.verify_id_token(id_token)
-        return decoded_token['uid']
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid auth token")
+# --------------------------------------------------------------------------- #
+# Models
+# --------------------------------------------------------------------------- #
+class PromptInput(BaseModel):
+    prompt: str = Field(min_length=3, max_length=2000)
 
-ACCOUNT_LIMITS = {
-    'free': 5,
-    'plus': 25,
-    'pro': 60,
-}
-
-def can_generate(uid, account_type):
-    if DEV_MODE:
-        # Unlimited in dev mode
-        return True, 1, ACCOUNT_LIMITS.get(account_type, 5)
-    today = datetime.now().strftime('%Y-%m-%d')
-    usage_ref = db.reference(f'users/{uid}/dailyUsage/{today}')
-    usage = usage_ref.get() or 0
-    limit = ACCOUNT_LIMITS.get(account_type, 5)
-    if usage >= limit:
-        return False, usage, limit
-    usage_ref.set(usage + 1)
-    return True, usage + 1, limit
-
-@app.post("/generate")
-async def generate_video(data: PromptInput, uid: str = Depends(get_current_user)):
-    # Get account type
-    account_type = 'free' if DEV_MODE else (db.reference(f'users/{uid}/accountType').get() or 'free')
-    allowed, usage, limit = can_generate(uid, account_type)
-    if not allowed:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "LIMIT_REACHED",
-                "message": f"Daily limit reached ({limit} generations for {account_type} tier).",
-                "usage": usage,
-                "limit": limit,
-                "account_type": account_type
-            }
-        )
-    # Measure LLM generation time
-    if DEV_MODE:
-        # Use a deterministic MorphScene for local testing
-        llm_duration_ms = 0
-        code = (
-            "from manim import *\n\n"
-            "class MorphScene(Scene):\n"
-            "    def construct(self):\n"
-            "        circle = Circle(color=BLUE).scale(1.2)\n"
-            "        square = Square(color=GREEN).scale(1.2)\n"
-            "        label = Text('PromptMotion', font_size=36)\n"
-            "        self.play(Create(circle))\n"
-            "        self.play(Transform(circle, square))\n"
-            "        self.play(FadeIn(label.shift(DOWN*2)))\n"
-            "        self.wait(0.5)\n"
-        )
-    else:
-        llm_start = datetime.now()
-        code = generate_manim_code(data.prompt)
-        llm_end = datetime.now()
-        llm_duration_ms = int((llm_end - llm_start).total_seconds() * 1000)
-
-    # Measure end-to-end time including render
-    e2e_start = datetime.now()
-    result = save_and_render(code, uid, data.prompt)
-    e2e_end = datetime.now()
-    e2e_duration_ms = int((e2e_end - e2e_start).total_seconds() * 1000)
-    video_url = result["video_url"]
-    scene_file_id = result["file_id"]
-    # Persist LLM/e2e timings on the code record
-    try:
-        code_ref = db.reference(f'users/{uid}/codes/{scene_file_id}')
-        code_ref.update({
-            'llm_duration_ms': llm_duration_ms,
-            'end_to_end_ms': e2e_duration_ms
-        })
-    except Exception as e:
-        print(f"Warning: Failed to attach timing metrics to code record: {e}")
-
-    return {
-        "video_url": video_url,
-        "scene_file_id": scene_file_id,
-        "usage": usage,
-        "limit": limit,
-        "account_type": account_type
-    }
-
-@app.get("/metrics")
-async def get_metrics(uid: str = Depends(get_current_user), days: int = 7):
-    """Aggregate render metrics for the authenticated user over the last N days.
-    Returns count, success_rate, avg_ms, p50_ms, p95_ms.
-    """
-    try:
-        now = datetime.now()
-        durations = []
-        total = 0
-        successes = 0
-        # Collect metrics over the last `days` days
-        for i in range(days):
-            day_key = (now - timedelta(days=i)).strftime('%Y-%m-%d')
-            day_ref = db.reference(f'metrics/renders/{uid}/{day_key}')
-            day_items = day_ref.get() or {}
-            if isinstance(day_items, dict):
-                for _, m in day_items.items():
-                    total += 1
-                    if m.get('success'):
-                        successes += 1
-                    dur = m.get('duration_ms')
-                    if isinstance(dur, (int, float)):
-                        durations.append(int(dur))
-
-        durations.sort()
-        def percentile(sorted_list, pct):
-            if not sorted_list:
-                return 0
-            k = (len(sorted_list) - 1) * (pct / 100.0)
-            f = int(k)
-            c = min(f + 1, len(sorted_list) - 1)
-            if f == c:
-                return sorted_list[f]
-            return int(sorted_list[f] + (sorted_list[c] - sorted_list[f]) * (k - f))
-
-        avg_ms = int(sum(durations) / len(durations)) if durations else 0
-        p50_ms = percentile(durations, 50)
-        p95_ms = percentile(durations, 95)
-        success_rate = (successes / total) if total > 0 else 0
-
-        return {
-            'window_days': days,
-            'count': total,
-            'success_rate': success_rate,
-            'avg_ms': avg_ms,
-            'p50_ms': p50_ms,
-            'p95_ms': p95_ms,
-        }
-    except Exception as e:
-        print(f"Error aggregating metrics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/code/{scene_file_id}")
-def get_code(scene_file_id: str, uid: str = Depends(get_current_user)):
-    # Get code from Firebase Realtime Database
-    code_ref = db.reference(f'users/{uid}/codes/{scene_file_id}')
-    code_data = code_ref.get()
-    
-    if not code_data or 'code' not in code_data:
-        raise HTTPException(status_code=404, detail="Code not found")
-    
-    return {"code": code_data['code']}
 
 class CodeUpdate(BaseModel):
-    code: str
+    code: str = Field(min_length=1, max_length=100_000)
 
-@app.put("/code/{scene_file_id}")
-def update_code(scene_file_id: str, update: CodeUpdate, uid: str = Depends(get_current_user)):
-    print(f"Received code for scene {scene_file_id}:")
-    print(update.code[:1000])  # Print first 1000 chars for sanity check
 
-    # Update code in Firebase and render new video in place
-    result = save_and_render(update.code, uid, "", scene_file_id)
-    video_url = result["video_url"]
-    new_scene_file_id = result["file_id"]
+class PlanSelection(BaseModel):
+    plan: str
 
-    print(f"Updated code and rendered new video with ID: {new_scene_file_id}")
+
+# --------------------------------------------------------------------------- #
+# Auth & quota
+# --------------------------------------------------------------------------- #
+class QuotaExceeded(Exception):
+    def __init__(self, usage: int) -> None:
+        self.usage = usage
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _today_key() -> str:
+    return _utc_now().strftime("%Y-%m-%d")
+
+
+def get_current_user(request: Request) -> str:
+    """Resolve the caller's Firebase UID from the bearer token."""
+    if config.DEV_MODE:
+        return DEV_USER_ID
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    try:
+        return firebase_auth.verify_id_token(auth_header.split(" ", 1)[1])["uid"]
+    except Exception:
+        # Never echo token-verification internals back to the caller.
+        logger.info("Rejected an invalid ID token")
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+
+
+def require_billing() -> None:
+    if not RAZORPAY_ENABLED:
+        raise HTTPException(status_code=503, detail="Billing is not configured on this server.")
+
+
+def get_account_type(uid: str) -> str:
+    tier = db.reference(f"users/{uid}/accountType").get() or config.DEFAULT_TIER
+    return tier if tier in config.ACCOUNT_LIMITS else config.DEFAULT_TIER
+
+
+def _daily_usage_ref(uid: str):
+    return db.reference(f"users/{uid}/dailyUsage/{_today_key()}")
+
+
+def reserve_quota(uid: str, limit: int) -> int:
+    """Atomically claim one generation for today, or raise :class:`QuotaExceeded`."""
+
+    def apply(current: Optional[int]) -> int:
+        used = current or 0
+        if used >= limit:
+            raise QuotaExceeded(used)
+        return used + 1
+
+    return _daily_usage_ref(uid).transaction(apply)
+
+
+def release_quota(uid: str) -> None:
+    """Give a reserved generation back after a failed render."""
+    try:
+        _daily_usage_ref(uid).transaction(lambda current: max(0, (current or 0) - 1))
+    except Exception:
+        logger.warning("Failed to refund quota for %s", uid, exc_info=True)
+
+
+def daily_usage(uid: str) -> int:
+    return _daily_usage_ref(uid).get() or 0
+
+
+# --------------------------------------------------------------------------- #
+# Health
+# --------------------------------------------------------------------------- #
+@app.get("/health")
+async def health_check() -> Dict[str, Any]:
+    return {"status": "healthy", "timestamp": _utc_now().isoformat(), "dev_mode": config.DEV_MODE}
+
+
+# --------------------------------------------------------------------------- #
+# Generation
+# --------------------------------------------------------------------------- #
+async def _render(code: str, uid: str, prompt: str, tier: str, file_id: Optional[str] = None) -> RenderResult:
+    """Run the blocking render off the event loop."""
+    return await run_in_threadpool(save_and_render, code, uid, prompt, file_id, tier)
+
+
+@app.post("/generate")
+async def generate_video(data: PromptInput, uid: str = Depends(get_current_user)) -> Dict[str, Any]:
+    tier = config.DEFAULT_TIER if config.DEV_MODE else await run_in_threadpool(get_account_type, uid)
+    limit = config.ACCOUNT_LIMITS[tier]
+
+    if config.DEV_MODE:
+        usage = 1
+    else:
+        try:
+            usage = await run_in_threadpool(reserve_quota, uid, limit)
+        except QuotaExceeded as exc:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "LIMIT_REACHED",
+                    "message": f"Daily limit reached ({limit} generations for the {tier} tier).",
+                    "usage": exc.usage,
+                    "limit": limit,
+                    "account_type": tier,
+                },
+            )
+
+    llm_started = _utc_now()
+    try:
+        code = DEV_SCENE_CODE if config.DEV_MODE else await run_in_threadpool(generate_manim_code, data.prompt)
+    except Exception as exc:
+        if not config.DEV_MODE:
+            await run_in_threadpool(release_quota, uid)
+        logger.exception("Code generation failed")
+        raise HTTPException(status_code=502, detail=f"Could not generate animation code: {exc}")
+    llm_duration_ms = int((_utc_now() - llm_started).total_seconds() * 1000)
+
+    e2e_started = _utc_now()
+    try:
+        result = await _render(code, uid, data.prompt, tier)
+    except UnsafeCodeError as exc:
+        if not config.DEV_MODE:
+            await run_in_threadpool(release_quota, uid)
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        if not config.DEV_MODE:
+            await run_in_threadpool(release_quota, uid)
+        logger.exception("Render pipeline crashed")
+        raise HTTPException(status_code=500, detail="Rendering failed. Please try again.")
+
+    if not result.success:
+        if not config.DEV_MODE:
+            await run_in_threadpool(release_quota, uid)
+            usage = max(0, usage - 1)
+        raise HTTPException(status_code=500, detail="Rendering failed. Please try a different prompt.")
+
+    e2e_duration_ms = int((_utc_now() - e2e_started).total_seconds() * 1000)
+    try:
+        db.reference(f"users/{uid}/codes/{result.file_id}").update(
+            {"llm_duration_ms": llm_duration_ms, "end_to_end_ms": e2e_duration_ms}
+        )
+    except Exception:
+        logger.warning("Failed to attach timing metrics to %s", result.file_id, exc_info=True)
 
     return {
-        "status": "updated",
-        "video_url": video_url,
-        "scene_file_id": new_scene_file_id
+        "video_url": result.video_url,
+        "scene_file_id": result.file_id,
+        "usage": usage,
+        "limit": limit,
+        "account_type": tier,
     }
+
+
+def _percentile(sorted_values: List[int], pct: float) -> int:
+    if not sorted_values:
+        return 0
+    position = (len(sorted_values) - 1) * (pct / 100.0)
+    low = int(position)
+    high = min(low + 1, len(sorted_values) - 1)
+    if low == high:
+        return sorted_values[low]
+    return int(sorted_values[low] + (sorted_values[high] - sorted_values[low]) * (position - low))
+
+
+@app.get("/metrics")
+async def get_metrics(
+    uid: str = Depends(get_current_user),
+    days: int = Query(7, ge=1, le=90),
+) -> Dict[str, Any]:
+    """Aggregate render metrics for the caller over the last *days* days."""
+
+    def aggregate() -> Dict[str, Any]:
+        now = _utc_now()
+        durations: List[int] = []
+        total = successes = 0
+
+        for offset in range(days):
+            day_key = (now - timedelta(days=offset)).strftime("%Y-%m-%d")
+            for entry in (db.reference(f"metrics/renders/{uid}/{day_key}").get() or {}).values():
+                if not isinstance(entry, dict):
+                    continue
+                total += 1
+                successes += bool(entry.get("success"))
+                duration = entry.get("duration_ms")
+                if isinstance(duration, (int, float)):
+                    durations.append(int(duration))
+
+        durations.sort()
+        return {
+            "window_days": days,
+            "count": total,
+            "success_rate": successes / total if total else 0,
+            "avg_ms": int(sum(durations) / len(durations)) if durations else 0,
+            "p50_ms": _percentile(durations, 50),
+            "p95_ms": _percentile(durations, 95),
+        }
+
+    return await run_in_threadpool(aggregate)
+
+
+# --------------------------------------------------------------------------- #
+# Scene code
+# --------------------------------------------------------------------------- #
+@app.get("/code/{scene_file_id}")
+async def get_code(scene_file_id: str, uid: str = Depends(get_current_user)) -> Dict[str, str]:
+    record = await run_in_threadpool(db.reference(f"users/{uid}/codes/{scene_file_id}").get)
+    if not record or "code" not in record:
+        raise HTTPException(status_code=404, detail="Code not found")
+    return {"code": record["code"]}
+
+
+@app.put("/code/{scene_file_id}")
+async def update_code(
+    scene_file_id: str, update: CodeUpdate, uid: str = Depends(get_current_user)
+) -> Dict[str, Any]:
+    # The submitted code is executed by the renderer, so screen it before it is
+    # ever written to disk.
+    try:
+        validate_scene_code(update.code)
+    except UnsafeCodeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    existing = await run_in_threadpool(db.reference(f"users/{uid}/codes/{scene_file_id}").get)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Animation not found")
+
+    tier = config.DEFAULT_TIER if config.DEV_MODE else await run_in_threadpool(get_account_type, uid)
+    result = await _render(update.code, uid, existing.get("title", ""), tier, scene_file_id)
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or "Render failed")
+
+    return {"status": "updated", "video_url": result.video_url, "scene_file_id": result.file_id}
+
 
 @app.get("/my-codes")
-def list_my_codes(uid: str = Depends(get_current_user)):
-    # List all codes for the current user
-    codes_ref = db.reference(f'users/{uid}/codes')
-    codes_data = codes_ref.get()
-    if not codes_data:
-        return {"codes": []}
-    # Return a list of code entries with their scene_file_id
-    return {"codes": [
-        {"scene_file_id": k, **v} for k, v in codes_data.items()
-    ]}
+async def list_my_codes(uid: str = Depends(get_current_user)) -> Dict[str, List[Dict[str, Any]]]:
+    codes = await run_in_threadpool(db.reference(f"users/{uid}/codes").get) or {}
+    # Shipping the source of every animation would balloon this payload; the
+    # client fetches it on demand from /code/{id}.
+    summaries = [
+        {
+            "scene_file_id": key,
+            "title": value.get("title", "Untitled"),
+            "timestamp": value.get("timestamp", ""),
+            "status": value.get("status", "unknown"),
+            "video_url": value.get("video_url", ""),
+        }
+        for key, value in codes.items()
+        if isinstance(value, dict)
+    ]
+    summaries.sort(key=lambda item: item["timestamp"], reverse=True)
+    return {"codes": summaries}
 
-# --- USAGE STATS ENDPOINTS ---
-def reset_daily_limits(uid: str, account_type: str):
-    """Reset daily usage limits for a user"""
-    today = datetime.now().strftime('%Y-%m-%d')
-    usage_ref = db.reference(f'users/{uid}/dailyUsage/{today}')
-    current_usage = usage_ref.get() or 0
-    
-    # Get the limit based on account type
-    limit = ACCOUNT_LIMITS.get(account_type, 5)
-    
-    # Update usage stats with remaining animations
-    stats_ref = db.reference(f'usage_stats/{uid}')
-    stats = stats_ref.get() or {
-        'totalAnimations': 0,
-        'remainingAnimations': limit,
-        'totalRenderTime': 0,
-        'averageRenderTime': 0,
-        'lastUpdated': datetime.now().isoformat(),
-        'account_type': account_type
-    }
-    
-    # Calculate remaining animations
-    remaining = max(0, limit - current_usage)
-    stats['remainingAnimations'] = remaining
-    stats['lastUpdated'] = datetime.now().isoformat()
-    stats_ref.set(stats)
-    
-    return remaining
 
+# --------------------------------------------------------------------------- #
+# Stats
+# --------------------------------------------------------------------------- #
 @app.get("/usage-stats")
-async def get_usage_stats(request: Request):
-    try:
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="No token provided")
-        id_token = auth_header.split("Bearer ")[1]
-        decoded_token = firebase_auth.verify_id_token(id_token)
-        uid = decoded_token["uid"]
+async def get_usage_stats(uid: str = Depends(get_current_user)) -> Dict[str, Any]:
+    def read() -> Dict[str, Any]:
+        tier = get_account_type(uid)
+        limit = config.ACCOUNT_LIMITS[tier]
+        stats = db.reference(f"usage_stats/{uid}").get() or {}
+        # remainingAnimations is always derived from the daily counter so it
+        # cannot drift out of sync with the quota that /generate enforces.
+        return {
+            "totalAnimations": stats.get("totalAnimations", 0),
+            "totalRenderTime": stats.get("totalRenderTime", 0),
+            "averageRenderTime": stats.get("averageRenderTime", 0),
+            "remainingAnimations": max(0, limit - daily_usage(uid)),
+            "account_type": tier,
+            "limit": limit,
+            "lastUpdated": stats.get("lastUpdated", _utc_now().isoformat()),
+        }
 
-        # Get user's account type
-        user_ref = db.reference(f'users/{uid}')
-        user_data = user_ref.get() or {}
-        account_type = user_data.get('accountType', 'free')
-        
-        # Reset daily limits and get updated stats
-        remaining = reset_daily_limits(uid, account_type)
-        
-        # Get the limit based on account type
-        limit = ACCOUNT_LIMITS.get(account_type, 5)
+    return await run_in_threadpool(read)
 
-        ref = db.reference(f'usage_stats/{uid}')
-        stats = ref.get()
-        if not stats:
-            stats = {
-                'totalAnimations': 0,
-                'remainingAnimations': remaining,
-                'totalRenderTime': 0,
-                'averageRenderTime': 0,
-                'lastUpdated': datetime.now().isoformat(),
-                'account_type': account_type,
-                'limit': limit
-            }
-            ref.set(stats)
-        else:
-            # Update remaining animations and account type
-            stats['remainingAnimations'] = remaining
-            stats['account_type'] = account_type
-            stats['limit'] = limit
-            ref.update(stats)
-
-        return stats
-    except Exception as e:
-        print(f"Error getting usage stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/recent-activity")
-async def get_recent_activity(request: Request):
-    try:
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="No token provided")
-        id_token = auth_header.split("Bearer ")[1]
-        decoded_token = firebase_auth.verify_id_token(id_token)
-        uid = decoded_token["uid"]
-        # Fetch from codes instead of animations
-        ref = db.reference(f'users/{uid}/codes')
-        codes = ref.get()
-        if not codes:
-            return []
-        activity_list = []
-        for file_id, code_data in codes.items():
-            activity_list.append({
-                'id': file_id,
-                'name': code_data.get('title', 'Untitled'),
-                'date': code_data.get('timestamp', ''),
-                'duration': code_data.get('render_time', '0'),
-                'status': code_data.get('status', 'completed')
-            })
-        activity_list.sort(key=lambda x: x['date'], reverse=True)
-        return activity_list[:10]
-    except Exception as e:
-        print(f"Error getting recent activity: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_recent_activity(uid: str = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    codes = await run_in_threadpool(db.reference(f"users/{uid}/codes").get) or {}
+    activity = [
+        {
+            "id": file_id,
+            "name": data.get("title", "Untitled"),
+            "date": data.get("timestamp", ""),
+            "duration": data.get("render_time", 0),
+            "status": data.get("status", "completed"),
+        }
+        for file_id, data in codes.items()
+        if isinstance(data, dict)
+    ]
+    activity.sort(key=lambda item: item["date"], reverse=True)
+    return activity[:10]
 
-# Note: save_and_render should be updated in manim_engine.py to update usage stats as in the app/main.py version.
 
-async def verify_token(request: Request):
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith('Bearer '):
-        raise HTTPException(status_code=401, detail='Invalid authorization header')
-    
-    token = auth_header.split('Bearer ')[1]
-    try:
-        decoded_token = firebase_auth.verify_id_token(token)
-        return decoded_token
-    except Exception as e:
-        raise HTTPException(status_code=401, detail='Invalid token')
+# --------------------------------------------------------------------------- #
+# Billing
+# --------------------------------------------------------------------------- #
+def _apply_plan(uid: str, plan: str, subscription: Optional[Dict[str, Any]] = None) -> None:
+    """Write a plan change and keep the cached usage stats consistent."""
+    db.reference(f"users/{uid}").update(
+        {
+            "accountType": plan,
+            "subscription": {
+                "status": "active" if plan != config.DEFAULT_TIER else "inactive",
+                "plan": plan,
+                "subscription_id": (subscription or {}).get("id"),
+                "current_period_start": (subscription or {}).get("start_at"),
+                "current_period_end": (subscription or {}).get("end_at"),
+            },
+        }
+    )
+    limit = config.ACCOUNT_LIMITS.get(plan, config.ACCOUNT_LIMITS[config.DEFAULT_TIER])
+    db.reference(f"usage_stats/{uid}").update(
+        {
+            "account_type": plan,
+            "limit": limit,
+            "remainingAnimations": max(0, limit - daily_usage(uid)),
+        }
+    )
 
-@app.post("/api/create-razorpay-order")
-async def create_razorpay_order(request: Request):
-    try:
-        print("Debug: Starting create_razorpay_order")
-        print(f"Debug: SUBSCRIPTION_PLAN_IDS available: {SUBSCRIPTION_PLAN_IDS}")
-        print(f"Debug: SUBSCRIPTION_PLANS available: {SUBSCRIPTION_PLANS}")
-        
-        data = await request.json()
-        plan = data.get("plan")
-        uid = data.get("uid")
-        
-        print(f"Creating Razorpay order for plan: {plan}, uid: {uid}")
-        
-        if not plan or not uid:
-            print(f"Missing required fields. Plan: {plan}, UID: {uid}")
-            raise HTTPException(status_code=400, detail="Missing required fields: plan and uid")
-        
-        if plan not in SUBSCRIPTION_PLANS:
-            print(f"Invalid plan: {plan}")
-            raise HTTPException(status_code=400, detail=f"Invalid plan: {plan}")
-        
-        if plan == "free":
-            print("Cannot create subscription for free plan")
-            raise HTTPException(status_code=400, detail="Cannot create subscription for free plan")
-        
-        if plan not in SUBSCRIPTION_PLAN_IDS:
-            print(f"No plan ID found for plan: {plan}")
-            raise HTTPException(status_code=400, detail=f"No plan ID found for plan: {plan}")
-        
-        try:
-            print(f"Using plan ID: {SUBSCRIPTION_PLAN_IDS[plan]}")
-            # Create a subscription
-            subscription = razorpay_client.subscription.create({
+
+@app.post("/api/create-razorpay-order", dependencies=[Depends(require_billing)])
+async def create_razorpay_order(
+    selection: PlanSelection, uid: str = Depends(get_current_user)
+) -> Dict[str, Any]:
+    # The UID comes from the verified token, never from the request body —
+    # otherwise any caller could open subscriptions against another account.
+    plan = selection.plan.lower()
+    if plan not in SUBSCRIPTION_PLANS:
+        raise HTTPException(status_code=400, detail=f"Unknown plan: {selection.plan}")
+    if plan not in SUBSCRIPTION_PLAN_IDS:
+        raise HTTPException(status_code=400, detail=f"Plan '{plan}' is not purchasable.")
+
+    def create() -> Dict[str, Any]:
+        return razorpay_client.subscription.create(
+            {
                 "plan_id": SUBSCRIPTION_PLAN_IDS[plan],
                 "customer_notify": 1,
                 "quantity": 1,
-                "total_count": 12,  # 12 months subscription
-                "notes": {
-                    "uid": uid,
-                    "plan": plan
-                }
-            })
-            
-            print(f"Subscription created successfully: {subscription}")
-            
-            return {
-                "subscription_id": subscription["id"],
-                "key_id": os.getenv("RAZORPAY_KEY_ID"),
-                "amount": SUBSCRIPTION_PLANS[plan]["amount"],
-                "currency": "INR"
+                "total_count": 12,
+                "notes": {"uid": uid, "plan": plan},
             }
-        except razorpay.errors.BadRequestError as e:
-            print(f"Razorpay BadRequestError: {str(e)}")
-            if hasattr(e, 'error'):
-                print(f"Razorpay error details: {e.error}")
-            raise HTTPException(status_code=400, detail=f"Invalid request to Razorpay: {str(e)}")
-        except razorpay.errors.ServerError as e:
-            print(f"Razorpay ServerError: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Razorpay server error: {str(e)}")
-        except Exception as e:
-            print(f"Unexpected error creating subscription: {str(e)}")
-            print(f"Error type: {type(e)}")
-            if hasattr(e, 'error'):
-                print(f"Razorpay error details: {e.error}")
-            raise HTTPException(status_code=500, detail=f"Failed to create subscription: {str(e)}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Unexpected error in create-razorpay-order: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        )
+
+    try:
+        subscription = await run_in_threadpool(create)
+    except Exception:
+        logger.exception("Razorpay subscription creation failed for %s", uid)
+        raise HTTPException(status_code=502, detail="Could not create the subscription. Please try again.")
+
+    return {
+        "subscription_id": subscription["id"],
+        "key_id": config.RAZORPAY_KEY_ID,
+        "amount": SUBSCRIPTION_PLANS[plan]["amount"],
+        "currency": "INR",
+    }
+
 
 @app.post("/api/razorpay-webhook")
-async def razorpay_webhook(request: Request):
+async def razorpay_webhook(request: Request) -> Dict[str, str]:
+    if not config.RAZORPAY_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook secret is not configured.")
+
     payload = await request.body()
-    signature = request.headers.get("x-razorpay-signature")
-    secret = os.getenv("RAZORPAY_KEY_SECRET")
-    
-    # Verify signature
-    generated_signature = hmac.new(
-        bytes(secret, 'utf-8'),
-        msg=payload,
-        digestmod=hashlib.sha256
+    signature = request.headers.get("x-razorpay-signature", "")
+    expected = hmac.new(
+        config.RAZORPAY_WEBHOOK_SECRET.encode("utf-8"), msg=payload, digestmod=hashlib.sha256
     ).hexdigest()
-    
-    if signature != generated_signature:
-        print("Invalid Razorpay webhook signature")
+
+    # Constant-time comparison; `!=` leaks the signature one byte at a time.
+    if not hmac.compare_digest(signature, expected):
+        logger.warning("Rejected a Razorpay webhook with a bad signature")
         raise HTTPException(status_code=400, detail="Invalid signature")
-    
-    event = json.loads(payload)
-    event_type = event.get('event')
-    
-    if event_type == 'subscription.activated':
-        subscription = event['payload']['subscription']['entity']
-        notes = subscription.get('notes', {})
-        uid = notes.get('uid')
-        plan = notes.get('plan')
-        
-        if uid and plan:
-            # Update user's subscription in Firebase
-            user_ref = db.reference(f'users/{uid}')
-            user_ref.update({
-                'accountType': plan,
-                'subscription': {
-                    'status': 'active',
-                    'plan': plan,
-                    'subscription_id': subscription['id'],
-                    'current_period_start': subscription['start_at'],
-                    'current_period_end': subscription['end_at'],
-                }
-            })
-            print(f"Activated {plan} subscription for user {uid}")
-            # Update usage_stats for the new plan
-            limit = ACCOUNT_LIMITS.get(plan, 5)
-            usage_stats_ref = db.reference(f'usage_stats/{uid}')
-            usage_stats = usage_stats_ref.get() or {}
-            usage_stats['account_type'] = plan
-            usage_stats['limit'] = limit
-            usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
-            usage_stats_ref.set(usage_stats)
-    
-    elif event_type == 'subscription.charged':
-        # Handle successful payment for subscription renewal
-        payment = event['payload']['payment']['entity']
-        subscription = event['payload']['subscription']['entity']
-        notes = subscription.get('notes', {})
-        uid = notes.get('uid')
-        plan = notes.get('plan')
-        
-        if uid and plan:
-            # Update subscription end date
-            user_ref = db.reference(f'users/{uid}')
-            user_ref.update({
-                'subscription.current_period_end': subscription['end_at']
-            })
-            print(f"Renewed {plan} subscription for user {uid}")
-    
-    elif event_type == 'subscription.cancelled':
-        subscription = event['payload']['subscription']['entity']
-        notes = subscription.get('notes', {})
-        uid = notes.get('uid')
-        
-        if uid:
-            # Downgrade to free plan
-            user_ref = db.reference(f'users/{uid}')
-            user_ref.update({
-                'accountType': 'free',
-                'subscription': {
-                    'status': 'inactive',
-                    'plan': 'free',
-                    'subscription_id': None,
-                    'current_period_start': None,
-                    'current_period_end': None,
-                }
-            })
-            # Update usage_stats for free plan
-            limit = ACCOUNT_LIMITS.get('free', 5)
-            usage_stats_ref = db.reference(f'usage_stats/{uid}')
-            usage_stats = usage_stats_ref.get() or {}
-            usage_stats['account_type'] = 'free'
-            usage_stats['limit'] = limit
-            usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
-            usage_stats_ref.set(usage_stats)
-            print(f"Cancelled subscription for user {uid}")
-    
+
+    try:
+        event = json.loads(payload)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Malformed webhook payload")
+
+    event_type = event.get("event")
+    subscription = event.get("payload", {}).get("subscription", {}).get("entity", {})
+    notes = subscription.get("notes") or {}
+    uid, plan = notes.get("uid"), notes.get("plan")
+
+    if not uid:
+        return {"status": "ignored"}
+
+    if event_type == "subscription.activated" and plan in config.ACCOUNT_LIMITS:
+        await run_in_threadpool(_apply_plan, uid, plan, subscription)
+        logger.info("Activated %s subscription for %s", plan, uid)
+    elif event_type == "subscription.charged":
+        await run_in_threadpool(
+            db.reference(f"users/{uid}/subscription").update,
+            {"current_period_end": subscription.get("end_at")},
+        )
+    elif event_type in {"subscription.cancelled", "subscription.completed", "subscription.halted"}:
+        await run_in_threadpool(_apply_plan, uid, config.DEFAULT_TIER, None)
+        logger.info("Downgraded %s to free after %s", uid, event_type)
+
     return {"status": "success"}
 
-@app.post("/api/cancel-subscription")
-async def cancel_subscription(request: Request):
-    data = await request.json()
-    uid = data.get("uid")
-    if not uid:
-        raise HTTPException(status_code=400, detail="Missing uid")
-    
-    try:
-        # Get user's subscription data from Firebase
-        user_ref = db.reference(f'users/{uid}')
-        user_data = user_ref.get()
-        current_plan = user_data.get('accountType', 'free')
-        
-        if current_plan == 'free':
-            # For free tier, just return success
-            return {"success": True, "message": "Already on free tier"}
-        
-        # Get subscription ID
-        subscription_id = user_data.get('subscription', {}).get('subscription_id')
-        
+
+@app.post("/api/cancel-subscription", dependencies=[Depends(require_billing)])
+async def cancel_subscription(uid: str = Depends(get_current_user)) -> Dict[str, Any]:
+    def run() -> Dict[str, Any]:
+        user_data = db.reference(f"users/{uid}").get() or {}
+        if (user_data.get("accountType") or config.DEFAULT_TIER) == config.DEFAULT_TIER:
+            return {"success": True, "message": "Already on the free tier"}
+
+        subscription_id = (user_data.get("subscription") or {}).get("subscription_id")
         if not subscription_id:
             raise HTTPException(status_code=400, detail="No active subscription found. Please contact support.")
-        
-        # Cancel the subscription in Razorpay
+
         try:
             razorpay_client.subscription.cancel(subscription_id)
-        except Exception as e:
-            print(f"Error cancelling Razorpay subscription: {str(e)}")
-            raise HTTPException(status_code=400, detail="Failed to cancel subscription in Razorpay. Please try again or contact support.")
-        
-        # Only update Firebase if Razorpay cancellation was successful
-        user_ref.update({
-            'accountType': 'free',
-            'subscription': {
-                'status': 'inactive',
-                'plan': 'free',
-                'subscription_id': None,
-                'current_period_start': None,
-                'current_period_end': None,
-            }
-        })
-        
-        # Update usage_stats for free plan
-        limit = ACCOUNT_LIMITS.get('free', 5)
-        usage_stats_ref = db.reference(f'usage_stats/{uid}')
-        usage_stats = usage_stats_ref.get() or {}
-        usage_stats['account_type'] = 'free'
-        usage_stats['limit'] = limit
-        usage_stats['remainingAnimations'] = max(0, limit - (db.reference(f"users/{uid}/dailyUsage/{datetime.now().strftime('%Y-%m-%d')}").get() or 0))
-        usage_stats_ref.set(usage_stats)
-        
-        return {"success": True, "message": "Successfully cancelled subscription and downgraded to free tier"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error in cancel_subscription: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to process subscription cancellation. Please try again or contact support.")
+        except Exception:
+            logger.exception("Razorpay cancellation failed for %s", uid)
+            raise HTTPException(status_code=502, detail="Could not cancel the subscription. Please try again.")
+
+        _apply_plan(uid, config.DEFAULT_TIER, None)
+        return {"success": True, "message": "Subscription cancelled; you are back on the free tier."}
+
+    return await run_in_threadpool(run)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host=config.HOST, port=config.PORT, reload=config.DEV_MODE)
 

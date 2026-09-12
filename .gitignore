@@ -1,24 +1,29 @@
 .DS_Store
-bolt/backend/media
-bolt/backend/Video_Codes
-bolt/backend/__pycache__
-bolt/backend/.env
 node_modules
-bolt/backend/serviceAccountKey.json
-bolt/backend/Video_Codes
-bolt/backend/media
-bolt/frontend/node_modules
+
+# Local environment / credentials
+.env
+bolt/backend/.env
 bolt/frontend/.env
 serviceAccountKey.json
-
-# Firebase credentials
 bolt/backend/serviceAccountKey.json
 
-# Generated files
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Build output
+bolt/frontend/dist/
+bolt/frontend/node_modules/
+
+# Generated render artefacts
 Video_codes/
 media/
-<<<<<<< HEAD
 images/
-=======
-.venv/
->>>>>>> 5d7f5d2 (added backend metrics)
+bolt/backend/media/
+bolt/backend/Video_codes/
+
+# TypeScript incremental build info
+*.tsbuildinfo

@@ -129,14 +129,19 @@ def save_and_render(
     scene_file = config.SCENE_DIR / f"scene_{file_id}.py"
     scene_file.write_text(code, encoding="utf-8")
 
-    code_ref = db.reference(f"users/{uid}/codes/{file_id}")
-    existing = code_ref.get() or {}
-    title = existing.get("title") or " ".join(prompt.strip().split()[:3]) or "Untitled"
-    timestamp = existing.get("timestamp") or _utc_now().isoformat()
+    code_ref = None
+    title = " ".join(prompt.strip().split()[:3]) or "Untitled"
+    timestamp = _utc_now().isoformat()
+    try:
+        code_ref = db.reference(f"users/{uid}/codes/{file_id}")
+        existing = code_ref.get() or {}
+        title = existing.get("title") or title
+        timestamp = existing.get("timestamp") or timestamp
+        # ``update`` rather than ``set`` so a re-render does not wipe prior fields.
+        code_ref.update({"code": code, "timestamp": timestamp, "status": "processing", "title": title})
+    except Exception:
+        logger.warning("Firebase DB write skipped (no credentials?) for %s", file_id, exc_info=True)
     label = prompt or title
-
-    # ``update`` rather than ``set`` so a re-render does not wipe prior fields.
-    code_ref.update({"code": code, "timestamp": timestamp, "status": "processing", "title": title})
 
     started = _utc_now()
     try:
@@ -178,17 +183,21 @@ def save_and_render(
         return _fail(code_ref, uid, file_id, started, f"Failed to publish video: {exc}", label)
 
     render_minutes = duration_ms / 60_000
-    code_ref.update(
-        {
-            "status": "completed",
-            "video_url": video_url,
-            "render_time": render_minutes,
-            "scene_class": scene_class,
-            "error": None,
-        }
-    )
-    _record_metrics(uid, file_id, duration_ms, True, None, label)
-    _record_totals(uid, render_minutes)
+    try:
+        if code_ref is not None:
+            code_ref.update(
+                {
+                    "status": "completed",
+                    "video_url": video_url,
+                    "render_time": render_minutes,
+                    "scene_class": scene_class,
+                    "error": None,
+                }
+            )
+        _record_metrics(uid, file_id, duration_ms, True, None, label)
+        _record_totals(uid, render_minutes)
+    except Exception:
+        logger.warning("Firebase post-render update skipped for %s", file_id, exc_info=True)
     _cleanup(scene_output_dir, scene_file)
 
     return RenderResult(file_id=file_id, video_url=video_url, success=True, duration_ms=duration_ms)
@@ -196,6 +205,10 @@ def save_and_render(
 
 def _fail(code_ref, uid: str, file_id: str, started: datetime, error: str, label: str) -> RenderResult:
     duration_ms = int((_utc_now() - started).total_seconds() * 1000)
-    code_ref.update({"status": "failed", "error": error[:2000]})
-    _record_metrics(uid, file_id, duration_ms, False, error, label)
+    try:
+        if code_ref is not None:
+            code_ref.update({"status": "failed", "error": error[:2000]})
+        _record_metrics(uid, file_id, duration_ms, False, error, label)
+    except Exception:
+        logger.warning("Firebase fail-update skipped for %s", file_id, exc_info=True)
     return RenderResult(file_id=file_id, video_url="", success=False, duration_ms=duration_ms, error=error)

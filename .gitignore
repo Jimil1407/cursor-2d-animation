@@ -7,6 +7,7 @@ bolt/backend/.env
 bolt/frontend/.env
 serviceAccountKey.json
 bolt/backend/serviceAccountKey.json
+*firebase-adminsdk*
 
 # Python
 __pycache__/

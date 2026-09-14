@@ -24,18 +24,26 @@ def _load_credentials() -> credentials.Base:
             logger.info("Using Firebase service account at %s", candidate)
             return credentials.Certificate(str(candidate))
 
-    raise RuntimeError(
-        "No Firebase credentials found. Set FIREBASE_SERVICE_ACCOUNT_JSON or "
-        "FIREBASE_SERVICE_ACCOUNT_FILE, or place serviceAccountKey.json next to the backend."
-    )
+    return None
 
 
 def get_app() -> firebase_admin.App:
     try:
         return firebase_admin.get_app()
     except ValueError:
+        cred = _load_credentials()
+        if cred is None and not config.DEV_MODE:
+            raise RuntimeError(
+                "No Firebase credentials found. Set FIREBASE_SERVICE_ACCOUNT_JSON or "
+                "FIREBASE_SERVICE_ACCOUNT_FILE, or place serviceAccountKey.json next to the backend."
+            )
+        if cred is None:
+            logger.warning(
+                "No Firebase credentials found — starting in DEV_MODE with limited functionality. "
+                "Firebase DB writes will fail."
+            )
         return firebase_admin.initialize_app(
-            _load_credentials(),
+            cred,
             {
                 "databaseURL": config.FIREBASE_DATABASE_URL,
                 "storageBucket": config.FIREBASE_STORAGE_BUCKET,
